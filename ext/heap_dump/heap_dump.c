@@ -93,9 +93,15 @@ static inline const char* rb_builtin_type(VALUE obj){
 
 //FIXME: handle non-ids?
 static void yg_id1(VALUE obj, walk_ctx_t* ctx){
-  if(!obj) return;
+  if(!obj) {
+    yajl_gen_null(ctx->yajl);
+    return;
+  }
   if (IMMEDIATE_P(obj)) {
-    if (FIXNUM_P(obj)) { /*ignore immediate fixnum*/ return; }
+    if (FIXNUM_P(obj)) { /*ignore immediate fixnum*/ 
+      //fixme: output some readable info
+      yajl_gen_null(ctx->yajl); 
+      return; }
     if (obj == Qtrue){ yajl_gen_bool(ctx->yajl, true); return; }
     if (SYMBOL_P(obj)) {
       //printf("symbol\n");
@@ -118,6 +124,7 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
 
   if(BUILTIN_TYPE(obj) == T_STRING && (!(RBASIC(obj)->flags & RSTRING_NOEMBED))){
     //printf("embedded string\n");
+    yajl_gen_null(ctx->yajl);
     return;
   }
   yg_int(NUM2LONG(rb_obj_id(obj)));
@@ -312,7 +319,7 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 
     //iteration func - blocks,procs,lambdas etc:
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
-      printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
+     // printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
       //FIXME: closures may leak references?
       break;
 
@@ -445,6 +452,11 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
 
   ygh_int("id", NUM2LONG(rb_obj_id(obj)));
   ygh_cstring("bt", rb_builtin_type(obj));
+
+  //TODO:
+  #ifdef GC_DEBUG
+  //RVALUE etc. has file/line info in this case
+  #endif
 
   switch(BUILTIN_TYPE(obj)){ // no need to call TYPE(), as value is on heap
     case T_NODE:
@@ -608,15 +620,21 @@ static int objspace_walker(void *vstart, void *vend, int stride, walk_ctx_t *ctx
   Copyright (C) 2000  Network Applied Communication Laboratory, Inc.
   Copyright (C) 2000  Information-technology Promotion Agency, Japan
 */
-#if defined(__x86_64__) && defined(__GNUC__) && !defined(__native_client__)
-#define SET_MACHINE_STACK_END(p) __asm__("movq\t%%rsp, %0" : "=r" (*(p)))
-#elif defined(__i386) && defined(__GNUC__) && !defined(__native_client__)
-#define SET_MACHINE_STACK_END(p) __asm__("movl\t%%esp, %0" : "=r" (*(p)))
-#else
+// #if defined(__x86_64__) && defined(__GNUC__) && !defined(__native_client__)
+// #define SET_MACHINE_STACK_END(p) __asm__("movq\t%%rsp, %0" : "=r" (*(p)))
+// #elif defined(__i386) && defined(__GNUC__) && !defined(__native_client__)
+// #define SET_MACHINE_STACK_END(p) __asm__("movl\t%%esp, %0" : "=r" (*(p)))
+// #else
 NOINLINE(void rb_gc_set_stack_end(VALUE **stack_end_p));
 #define SET_MACHINE_STACK_END(p) rb_gc_set_stack_end(p)
 #define USE_CONSERVATIVE_STACK_END
-#endif
+// #endif
+void
+rb_gc_set_stack_end(VALUE **stack_end_p)
+{
+    VALUE stack_end;
+    *stack_end_p = &stack_end;
+}
 
 #ifdef __ia64
 #define SET_STACK_END (SET_MACHINE_STACK_END(&th->machine_stack_end), th->machine_register_stack_end = rb_ia64_bsp())
@@ -769,6 +787,68 @@ struct gc_list {
 };
 
 
+// typedef struct rb_objspace {
+//   struct {
+//     size_t limit;
+//     size_t increase;
+// //FIXME: this should match ruby settings
+// //#if CALC_EXACT_MALLOC_SIZE
+//     size_t allocated_size;
+//     size_t allocations;
+// //#endif
+//   } malloc_params;
+
+//   struct {
+//       size_t increment;
+//       struct heaps_slot *ptr;
+//       struct heaps_slot *sweep_slots;
+//       struct heaps_slot *free_slots;
+//       struct sorted_heaps_slot *sorted;
+//       size_t length;
+//       size_t used;
+//       struct heaps_free_bitmap *free_bitmap;
+//       RVALUE *range[2];
+//       RVALUE *freed;
+//       size_t live_num;
+//       size_t free_num;
+//       size_t free_min;
+//       size_t final_num;
+//       size_t do_heap_free;
+//   } heap;
+
+//   struct {
+//     int dont_gc;
+//     int dont_lazy_sweep;
+//     int during_gc;
+//     rb_atomic_t finalizing;
+//   } flags;
+
+//   struct {
+//     st_table *table;
+//     RVALUE *deferred;
+//   } final;
+
+//   struct {
+//     VALUE buffer[MARK_STACK_MAX];
+//     VALUE *ptr;
+//     int overflow;
+//   } markstack;
+
+//   struct {
+//     int run;
+//     gc_profile_record *record;
+//     size_t count;
+//     size_t size;
+//     double invoke_time;
+//   } profile;
+
+//   struct gc_list *global_list;
+//   size_t count;
+//   int gc_stress;
+// } rb_objspace_t;
+
+
+// 1.9.2-p290:
 typedef struct rb_objspace {
     struct {
   size_t limit;
@@ -781,25 +861,15 @@ typedef struct rb_objspace {
     struct {
   size_t increment;
   struct heaps_slot *ptr;
-  struct heaps_slot *sweep_slots;
-  struct heaps_slot *free_slots;
-  struct sorted_heaps_slot *sorted;
   size_t length;
   size_t used;
-        struct heaps_free_bitmap *free_bitmap;
+  RVALUE *freelist;
   RVALUE *range[2];
   RVALUE *freed;
-  size_t live_num;
-  size_t free_num;
-  size_t free_min;
-  size_t final_num;
-  size_t do_heap_free;
     } heap;
     struct {
   int dont_gc;
-  int dont_lazy_sweep;
   int during_gc;
-  rb_atomic_t finalizing;
     } flags;
     struct {
   st_table *table;
@@ -818,10 +888,9 @@ typedef struct rb_objspace {
   double invoke_time;
     } profile;
     struct gc_list *global_list;
-    size_t count;
+    unsigned int count;
     int gc_stress;
 } rb_objspace_t;
-
 
 #define malloc_limit    objspace->malloc_params.limit
 #define malloc_increase   objspace->malloc_params.increase
@@ -849,41 +918,55 @@ is_pointer_to_heap(void *ptr, rb_objspace_t *objspace)
 {
     if(!ptr) return false;
     if(!objspace) objspace = GET_THREAD()->vm->objspace;
+    //GET_THREAD()->vm->main_thread->vm->objspace; 
     
     register RVALUE *p = RANY(ptr);
-    register struct sorted_heaps_slot *heap;
+    //register struct sorted_heaps_slot *heap;
     register size_t hi, lo, mid;
 
-    if (p < lomem || p > himem) {
-      printf("not in range %p - %p (objspace %p)\n", lomem, himem, objspace);
+    lo = lomem;
+    hi = himem;
+
+    //FIXME: nasty hack to pretend working...
+    //if(!lo) lo = 0xf00000000;
+    //if(!hi) hi = 0xffffffff00000000;
+
+    //less nasty
+
+    if (p < lo || p > hi) {
+      printf("not in range %p - %p (objspace %p, l%u used %u)\n", lo, hi, objspace, heaps_length, heaps_used);
       return FALSE;
     }
-    printf("ptr in range\n");
+    //printf("ptr in range\n");
     if ((VALUE)p % sizeof(RVALUE) != 0) return FALSE;
-    printf("ptr align correct\n");
-    
-    /* check if p looks like a pointer using bsearch*/
-    lo = 0;
-    hi = heaps_used;
-    while (lo < hi) {
-      mid = (lo + hi) / 2;
-      heap = &objspace->heap.sorted[mid];
-      if (heap->start <= p) {
-          if (p < heap->end)
-        return TRUE;
-          lo = mid + 1;
-      }
-      else {
-          hi = mid;
-      }
+    printf("ptr %p align correct\n", ptr);
+  
+
+  //1.9.2-p290
+  /* check if p looks like a pointer using bsearch*/
+      lo = 0;
+      hi = heaps_used;
+      while (lo < hi) {
+    mid = (lo + hi) / 2;
+    register struct heaps_slot *heap;
+    heap = &heaps[mid];
+    if (heap->slot <= p) {
+        if (p < heap->slot + heap->limit)
+      return TRUE;
+        lo = mid + 1;
     }
+    else {
+        hi = mid;
+    }
+      }
     printf("not found");
     return FALSE;
 }
 
 
 static void dump_machine_context(walk_ctx_t *ctx){
-  rb_thread_t* th = GET_THREAD();
+  //TODO: other threads?
+  rb_thread_t* th = GET_THREAD()->vm->main_thread; //GET_THREAD();
   union {
     rb_jmp_buf j;
     VALUE v[sizeof(rb_jmp_buf) / sizeof(VALUE)];
@@ -911,7 +994,7 @@ static void dump_machine_context(walk_ctx_t *ctx){
       yg_id(v);
   }
 
-  printf("stack\n");
+  printf("stack: %p %p\n", stack_start, stack_end);
 
   //rb_gc_mark_locations(stack_start, stack_end);
   if(stack_start < stack_end){
@@ -972,6 +1055,14 @@ rb_heapdump_dump(VALUE self, VALUE filename)
 
   dump_machine_context(ctx);
   flush_yajl(ctx);
+
+  struct gc_list *list;
+  /* mark protected global variables */
+  printf("global_List\n");
+  for (list = GET_THREAD()->vm->global_List; list; list = list->next) {
+    VALUE v = *list->varptr;
+    printf("global %p\n", v);
+  }
 
   yg_cstring("classes");
   yajl_gen_array_open(ctx->yajl);

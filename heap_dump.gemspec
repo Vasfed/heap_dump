@@ -15,7 +15,7 @@ Gem::Specification.new do |gem|
   gem.require_paths = ["lib"]
   gem.version       = HeapDump::VERSION
 
-  gem.required_ruby_version = '>=1.9.2'
+  gem.required_ruby_version = '~>1.9.2p290' # heap structure changed in 1.9.3, support later
   #gem.platform = Gem::Platform::CURRENT # other than osx - maybe later
 
   gem.extensions = "ext/heap_dump/extconf.rb"
