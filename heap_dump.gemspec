@@ -16,7 +16,7 @@ Gem::Specification.new do |gem|
   gem.version       = HeapDump::VERSION
 
   gem.required_ruby_version = '>=1.9.2'
-  gem.platform = Gem::Platform::CURRENT # other than osx - maybe later
+  #gem.platform = Gem::Platform::CURRENT # other than osx - maybe later
 
   gem.extensions = "ext/heap_dump/extconf.rb"
 
