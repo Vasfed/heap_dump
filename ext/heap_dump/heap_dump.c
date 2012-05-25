@@ -217,9 +217,8 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
       //printf("node scope\n");
       if(obj->nd_tbl){
         ID *tbl = RNODE(obj)->nd_tbl;
-        int size = tbl[0];
+        unsigned long i = 0, size = tbl[0];
         tbl++;
-        int i = 0;
         for (; i < size; i++) {
           //TODO: dump local var names?
           //printf("%s\n", rb_id2name(tbl[i]));
@@ -312,7 +311,7 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 
     //iteration func - blocks,procs,lambdas etc:
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
-      printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
+      printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
       //FIXME: closures may leak references?
       break;
 
@@ -323,7 +322,7 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 
       {const Node_Type_Descrip* descrip = node_type_descrips[nd_type(obj)];
 
-      printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", nd_type(obj), descrip ? descrip->name : "unknown", obj->u1.node, obj->u2.node, obj->u3.node);
+      printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", nd_type(obj), descrip ? descrip->name : "unknown", (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
       }
 
       // if (is_pointer_to_heap(objspace, obj->as.node.u1.node)) { gc_mark(objspace, (VALUE)obj->as.node.u1.node, lev); }
@@ -572,7 +571,7 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
     // T(T_RATIONAL); // refs too (num/den)...
     // T(T_COMPLEX);
 
-    // T(T_DATA); // data of extensions, undumpable? maybe in some way mess with mark callback? (need to intercept rb_gc_mark :( )
+    // T(T_DATA); // data of extensions + raw bytecode etc., undumpable? maybe in some way mess with mark callback? (need to intercept rb_gc_mark :( )
     // T(T_UNDEF);
     default: break;
   }
