@@ -6,6 +6,7 @@
 #include "yarv-headers/constant.h"
 #include "yarv-headers/node.h"
 #include "yarv-headers/vm_core.h"
+#include "yarv-headers/atomic.h"
 
 //#undef RCLASS_IV_TBL
 //#include "yarv-headers/internal.h"
@@ -442,7 +443,7 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
   ctx->live_objects++;
   yajl_gen_map_open(ctx->yajl);
 
-  ygh_int("id", NUM2LONG(rb_obj_id(obj))); //TODO: object_id is value>>2 ?
+  ygh_int("id", NUM2LONG(rb_obj_id(obj)));
   ygh_cstring("bt", rb_builtin_type(obj));
 
   switch(BUILTIN_TYPE(obj)){ // no need to call TYPE(), as value is on heap
@@ -600,27 +601,402 @@ static int objspace_walker(void *vstart, void *vend, int stride, walk_ctx_t *ctx
 }
 
 
+//TODO: move to separate header.
+/*
+  Bits of code taken directly from ruby gc
+  Copyright (C) 1993-2007 Yukihiro Matsumoto
+  Copyright (C) 2000  Network Applied Communication Laboratory, Inc.
+  Copyright (C) 2000  Information-technology Promotion Agency, Japan
+*/
+#if defined(__x86_64__) && defined(__GNUC__) && !defined(__native_client__)
+#define SET_MACHINE_STACK_END(p) __asm__("movq\t%%rsp, %0" : "=r" (*(p)))
+#elif defined(__i386) && defined(__GNUC__) && !defined(__native_client__)
+#define SET_MACHINE_STACK_END(p) __asm__("movl\t%%esp, %0" : "=r" (*(p)))
+#else
+NOINLINE(void rb_gc_set_stack_end(VALUE **stack_end_p));
+#define SET_MACHINE_STACK_END(p) rb_gc_set_stack_end(p)
+#define USE_CONSERVATIVE_STACK_END
+#endif
+
+#ifdef __ia64
+#define SET_STACK_END (SET_MACHINE_STACK_END(&th->machine_stack_end), th->machine_register_stack_end = rb_ia64_bsp())
+#else
+#define SET_STACK_END SET_MACHINE_STACK_END(&th->machine_stack_end)
+#endif
+
+#define STACK_START (th->machine_stack_start)
+#define STACK_END (th->machine_stack_end)
+#define STACK_LEVEL_MAX (th->machine_stack_maxsize/sizeof(VALUE))
+
+#if STACK_GROW_DIRECTION < 0
+# define STACK_LENGTH  (size_t)(STACK_START - STACK_END)
+#elif STACK_GROW_DIRECTION > 0
+# define STACK_LENGTH  (size_t)(STACK_END - STACK_START + 1)
+#else
+# define STACK_LENGTH  ((STACK_END < STACK_START) ? (size_t)(STACK_START - STACK_END) \
+      : (size_t)(STACK_END - STACK_START + 1))
+#endif
+#if !STACK_GROW_DIRECTION
+int ruby_stack_grow_direction;
+int
+ruby_get_stack_grow_direction(volatile VALUE *addr)
+{
+    VALUE *end;
+    SET_MACHINE_STACK_END(&end);
+
+    if (end > addr) return ruby_stack_grow_direction = 1;
+    return ruby_stack_grow_direction = -1;
+}
+#endif
+
+#if STACK_GROW_DIRECTION < 0
+#define GET_STACK_BOUNDS(start, end, appendix) ((start) = STACK_END, (end) = STACK_START)
+#elif STACK_GROW_DIRECTION > 0
+#define GET_STACK_BOUNDS(start, end, appendix) ((start) = STACK_START, (end) = STACK_END+(appendix))
+#else
+#define GET_STACK_BOUNDS(start, end, appendix) \
+    ((STACK_END < STACK_START) ? \
+     ((start) = STACK_END, (end) = STACK_START) : ((start) = STACK_START, (end) = STACK_END+(appendix)))
+#endif
+
+#define rb_setjmp(env) RUBY_SETJMP(env)
+#define rb_jmp_buf rb_jmpbuf_t
+
+#define numberof(array) (int)(sizeof(array) / sizeof((array)[0]))
+
+extern st_table *rb_class_tbl;
+
+
+/////////////
+#define MARK_STACK_MAX 1024
+
+#ifndef CALC_EXACT_MALLOC_SIZE
+#define CALC_EXACT_MALLOC_SIZE 0
+#endif
+#include "ruby/re.h"
+
+#ifndef FALSE
+# define FALSE 0
+#elif FALSE
+# error FALSE must be false
+#endif
+#ifndef TRUE
+# define TRUE 1
+#elif !TRUE
+# error TRUE must be true
+#endif
+
+//FIXME: this should be autoextracted from ruby
+typedef struct RVALUE {
+    union {
+  struct {
+      VALUE flags;    /* always 0 for freed obj */
+      struct RVALUE *next;
+  } free;
+  struct RBasic  basic;
+  struct RObject object;
+  struct RClass  klass;
+  struct RFloat  flonum;
+  struct RString string;
+  struct RArray  array;
+  struct RRegexp regexp;
+  struct RHash   hash;
+  struct RData   data;
+  struct RTypedData   typeddata;
+  struct RStruct rstruct;
+  struct RBignum bignum;
+  struct RFile   file;
+  struct RNode   node;
+  struct RMatch  match;
+  struct RRational rational;
+  struct RComplex complex;
+    } as;
+#ifdef GC_DEBUG
+    const char *file;
+    int   line;
+#endif
+} RVALUE;
+
+typedef struct gc_profile_record {
+    double gc_time;
+    double gc_mark_time;
+    double gc_sweep_time;
+    double gc_invoke_time;
+
+    size_t heap_use_slots;
+    size_t heap_live_objects;
+    size_t heap_free_objects;
+    size_t heap_total_objects;
+    size_t heap_use_size;
+    size_t heap_total_size;
+
+    int have_finalize;
+    int is_marked;
+
+    size_t allocate_increase;
+    size_t allocate_limit;
+} gc_profile_record;
+
+struct heaps_slot {
+    void *membase;
+    RVALUE *slot;
+    size_t limit;
+    uintptr_t *bits;
+    RVALUE *freelist;
+    struct heaps_slot *next;
+    struct heaps_slot *prev;
+    struct heaps_slot *free_next;
+};
+
+struct heaps_header {
+    struct heaps_slot *base;
+    uintptr_t *bits;
+};
+
+struct sorted_heaps_slot {
+    RVALUE *start;
+    RVALUE *end;
+    struct heaps_slot *slot;
+};
+
+struct heaps_free_bitmap {
+    struct heaps_free_bitmap *next;
+};
+
+struct gc_list {
+    VALUE *varptr;
+    struct gc_list *next;
+};
+
+
+typedef struct rb_objspace {
+    struct {
+  size_t limit;
+  size_t increase;
+#if CALC_EXACT_MALLOC_SIZE
+  size_t allocated_size;
+  size_t allocations;
+#endif
+    } malloc_params;
+    struct {
+  size_t increment;
+  struct heaps_slot *ptr;
+  struct heaps_slot *sweep_slots;
+  struct heaps_slot *free_slots;
+  struct sorted_heaps_slot *sorted;
+  size_t length;
+  size_t used;
+        struct heaps_free_bitmap *free_bitmap;
+  RVALUE *range[2];
+  RVALUE *freed;
+  size_t live_num;
+  size_t free_num;
+  size_t free_min;
+  size_t final_num;
+  size_t do_heap_free;
+    } heap;
+    struct {
+  int dont_gc;
+  int dont_lazy_sweep;
+  int during_gc;
+  rb_atomic_t finalizing;
+    } flags;
+    struct {
+  st_table *table;
+  RVALUE *deferred;
+    } final;
+    struct {
+  VALUE buffer[MARK_STACK_MAX];
+  VALUE *ptr;
+  int overflow;
+    } markstack;
+    struct {
+  int run;
+  gc_profile_record *record;
+  size_t count;
+  size_t size;
+  double invoke_time;
+    } profile;
+    struct gc_list *global_list;
+    size_t count;
+    int gc_stress;
+} rb_objspace_t;
+
+
+#define malloc_limit    objspace->malloc_params.limit
+#define malloc_increase   objspace->malloc_params.increase
+#define heaps     objspace->heap.ptr
+#define heaps_length    objspace->heap.length
+#define heaps_used    objspace->heap.used
+#define lomem     objspace->heap.range[0]
+#define himem     objspace->heap.range[1]
+#define heaps_inc   objspace->heap.increment
+#define heaps_freed   objspace->heap.freed
+#define dont_gc     objspace->flags.dont_gc
+#define during_gc   objspace->flags.during_gc
+#define finalizing    objspace->flags.finalizing
+#define finalizer_table   objspace->final.table
+#define deferred_final_list objspace->final.deferred
+#define mark_stack    objspace->markstack.buffer
+#define mark_stack_ptr    objspace->markstack.ptr
+#define mark_stack_overflow objspace->markstack.overflow
+#define global_List   objspace->global_list
+
+#define RANY(o) ((RVALUE*)(o))
+
+static inline int
+is_pointer_to_heap(void *ptr, rb_objspace_t *objspace)
+{
+    if(!ptr) return false;
+    if(!objspace) objspace = GET_THREAD()->vm->objspace;
+    
+    register RVALUE *p = RANY(ptr);
+    register struct sorted_heaps_slot *heap;
+    register size_t hi, lo, mid;
+
+    if (p < lomem || p > himem) {
+      printf("not in range %p - %p (objspace %p)\n", lomem, himem, objspace);
+      return FALSE;
+    }
+    printf("ptr in range\n");
+    if ((VALUE)p % sizeof(RVALUE) != 0) return FALSE;
+    printf("ptr align correct\n");
+    
+    /* check if p looks like a pointer using bsearch*/
+    lo = 0;
+    hi = heaps_used;
+    while (lo < hi) {
+      mid = (lo + hi) / 2;
+      heap = &objspace->heap.sorted[mid];
+      if (heap->start <= p) {
+          if (p < heap->end)
+        return TRUE;
+          lo = mid + 1;
+      }
+      else {
+          hi = mid;
+      }
+    }
+    printf("not found");
+    return FALSE;
+}
+
+
+static void dump_machine_context(walk_ctx_t *ctx){
+  rb_thread_t* th = GET_THREAD();
+  union {
+    rb_jmp_buf j;
+    VALUE v[sizeof(rb_jmp_buf) / sizeof(VALUE)];
+  } save_regs_gc_mark;
+  VALUE *stack_start, *stack_end;
+
+
+  yg_cstring("stack_and_registers");
+  yajl_gen_array_open(ctx->yajl);
+
+  FLUSH_REGISTER_WINDOWS;
+  /* This assumes that all registers are saved into the jmp_buf (and stack) */
+  rb_setjmp(save_regs_gc_mark.j);
+
+  SET_STACK_END;
+  GET_STACK_BOUNDS(stack_start, stack_end, 1);
+
+  //mark_locations_array(objspace, save_regs_gc_mark.v, numberof(save_regs_gc_mark.v));
+  VALUE* x = save_regs_gc_mark.v;
+  unsigned long n = numberof(save_regs_gc_mark.v);
+  printf("registers\n");
+  while (n--) {
+    VALUE v = *(x++);
+    if(is_pointer_to_heap((void*)v, NULL))
+      yg_id(v);
+  }
+
+  printf("stack\n");
+
+  //rb_gc_mark_locations(stack_start, stack_end);
+  if(stack_start < stack_end){
+    n = stack_end - stack_start;
+    x = stack_start;
+    while (n--) {
+      VALUE v = *(x++);
+      printf("val: %p\n", (void*)v);
+      //FIXME: other objspace (not default one?)
+      if(is_pointer_to_heap((void*)v, NULL)) {
+        printf("ON heap\n");
+        yg_id(v);
+      }
+    }
+  }
+
+  yajl_gen_array_close(ctx->yajl);
+}
+
+static int dump_iv_entry1(ID key, rb_const_entry_t* ce/*st_data_t val*/, walk_ctx_t *ctx){
+  if (!rb_is_const_id(key)) return ST_CONTINUE; //?
+  //rb_const_entry_t* ce = val;
+  VALUE value = ce->value;
+
+  //printf("cls %p\n", (void*)value);
+  //printf("id: %s\n", rb_id2name(key));
+
+  //val - damaged in some way?
+
+  //printf("name %s\n", RSTRING_PTR(rb_class_path(rb_class_real_checked(value))));
+
+  //if(is_pointer_to_heap(value, NULL)){
+    //printf("on heap\n");
+    yg_id(value);
+  //}
+
+  return ST_CONTINUE;
+}
+
 static VALUE
 rb_heapdump_dump(VALUE self, VALUE filename)
 {
-  struct walk_ctx ctx;
-  memset(&ctx, 0, sizeof(ctx));
+  struct walk_ctx ctx_o, *ctx = &ctx_o;
+  memset(ctx, 0, sizeof(*ctx));
 
   Check_Type(filename, T_STRING);
 
   printf("Dump should go to %s\n", RSTRING_PTR(filename));
-  ctx.file = fopen(RSTRING_PTR(filename), "wt");
-  ctx.yajl = yajl_gen_alloc(NULL,NULL);
-  yajl_gen_array_open(ctx.yajl);
+  ctx->file = fopen(RSTRING_PTR(filename), "wt");
+  ctx->yajl = yajl_gen_alloc(NULL,NULL);
+  yajl_gen_array_open(ctx->yajl);
 
-  rb_objspace_each_objects(objspace_walker, &ctx);
+  //dump origins:
+  yajl_gen_map_open(ctx->yajl);
+  ygh_cstring("id", "_ROOTS_");
 
-  yajl_gen_array_close(ctx.yajl);
+  printf("machine context\n");
+
+  dump_machine_context(ctx);
+  flush_yajl(ctx);
+
+  yg_cstring("classes");
+  yajl_gen_array_open(ctx->yajl);
+  printf("classes\n");
+  if (rb_class_tbl && rb_class_tbl->num_entries > 0)
+    st_foreach(rb_class_tbl, dump_iv_entry1, (st_data_t)ctx);
+  else printf("no classes\n");
+  yajl_gen_array_close(ctx->yajl);
+  flush_yajl(ctx);
+
+  //TODO: other gc entry points - symbols, encodings, etc.
+
+  yajl_gen_map_close(ctx->yajl); //id:roots
+  flush_yajl(ctx);
+
+  //now dump all live objects
+  printf("starting objspace walk\n");
+  rb_objspace_each_objects(objspace_walker, ctx);
+
+  yajl_gen_array_close(ctx->yajl);
   flush_yajl(&ctx);
-  yajl_gen_free(ctx.yajl);
-  fclose(ctx.file);
+  yajl_gen_free(ctx->yajl);
+  fclose(ctx->file);
 
-  printf("Walker called %d times, seen %d live objects.\n", ctx.walker_called, ctx.live_objects);
+  printf("Walker called %d times, seen %d live objects.\n", ctx->walker_called, ctx->live_objects);
 
   return Qnil;
 }
