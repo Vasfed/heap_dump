@@ -37,7 +37,7 @@ static ID classid;
 #define yg_cstring(str) yg_string(str, (unsigned int)strlen(str))
 #define yg_rstring(str) yg_string(RSTRING_PTR(str), (unsigned int)RSTRING_LEN(str))
 #define yg_int(i) yajl_gen_integer(ctx->yajl, i)
-#define yg_double(d) yajl_gen_double(ctx->yajl, d)
+#define yg_double(d) (yajl_gen_double(ctx->yajl, d)==yajl_gen_invalid_number? yg_cstring("inf|NaN") : true)
 
 //#define yg_id(obj) yg_int(NUM2LONG(rb_obj_id(obj)))
 #define yg_id(obj) yg_id1(obj,ctx)
