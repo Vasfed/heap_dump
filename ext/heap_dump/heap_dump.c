@@ -7,6 +7,7 @@
 #include "yarv-headers/node.h"
 #include "yarv-headers/vm_core.h"
 #include "yarv-headers/atomic.h"
+#include "yarv-headers/iseq.h"
 
 //#undef RCLASS_IV_TBL
 //#include "yarv-headers/internal.h"
@@ -98,9 +99,10 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
     return;
   }
   if (IMMEDIATE_P(obj)) {
-    if (FIXNUM_P(obj)) { /*ignore immediate fixnum*/ 
+    //printf("immediate\n");
+    if (FIXNUM_P(obj)) { /*ignore immediate fixnum*/
       //fixme: output some readable info
-      yajl_gen_null(ctx->yajl); 
+      yajl_gen_null(ctx->yajl);
       return; }
     if (obj == Qtrue){ yajl_gen_bool(ctx->yajl, true); return; }
     if (SYMBOL_P(obj)) {
@@ -110,23 +112,43 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
       return;
     }
     if (obj == Qundef) { yg_cstring("(undef)"); return; }
-    printf("immediate p\n");
-  } else /*non-immediate*/ if (!RTEST(obj)) {
-    if (obj == Qnil){
-      yajl_gen_null(ctx->yajl);
-      return;
-    }
-    if (obj == Qfalse) {
-      yajl_gen_bool(ctx->yajl, false);
-      return;
+
+    printf("immediate p %p?\n", obj);
+    yg_cstring("(unknown)");
+    return;
+  } else /*non-immediate*/ {
+    if (!RTEST(obj)) {
+      if (obj == Qnil){
+        yajl_gen_null(ctx->yajl);
+        return;
+      }
+      if (obj == Qfalse) {
+        yajl_gen_bool(ctx->yajl, false);
+        return;
+      }
+      //printf("non r-test\n");
     }
   }
 
+  //25116(0x621c aka 0b110001000011100), 28(0x) - wtf?
+  //28 = 0x1c
+  //1c= TNODE? or other flags combination
+
+  //also 30(x1e) ? - some internal symbols?
+
+  // if((obj & ~(~(VALUE)0 << RUBY_SPECIAL_SHIFT)) == 0x1c){
+  //   printf("!!!!! special shift flags is 0x1c: %p\n", obj);
+  //   yg_cstring("(unknown or internal 1c)");
+  //   return;
+  // }
+
   if(BUILTIN_TYPE(obj) == T_STRING && (!(RBASIC(obj)->flags & RSTRING_NOEMBED))){
     //printf("embedded string\n");
-    yajl_gen_null(ctx->yajl);
+    //yajl_gen_null(ctx->yajl);
+    yg_rstring(obj);
     return;
   }
+
   yg_int(NUM2LONG(rb_obj_id(obj)));
 }
 
@@ -432,6 +454,106 @@ static int dump_const_entry_i(ID key, const rb_const_entry_t *ce, walk_ctx_t *ct
   return ST_CONTINUE;
 }
 
+const char* iseq_type(VALUE type){
+  switch(type){
+    case ISEQ_TYPE_TOP:    return "top";
+    case ISEQ_TYPE_METHOD: return "method";
+    case ISEQ_TYPE_BLOCK:  return "block";
+    case ISEQ_TYPE_CLASS:  return "class";
+    case ISEQ_TYPE_RESCUE: return "rescue";
+    case ISEQ_TYPE_ENSURE: return "ensure";
+    case ISEQ_TYPE_EVAL:   return "eval";
+    case ISEQ_TYPE_MAIN:   return "main";
+    case ISEQ_TYPE_DEFINED_GUARD: return "defined_guard";
+  }
+  printf("unknown iseq type %d!\n", type);
+  return "unknown";
+}
+
+void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
+  if(iseq->name) ygh_rstring("name", iseq->name);
+  if(iseq->filename) ygh_rstring("filename", iseq->filename);
+  ygh_int("line", iseq->line_no);
+
+  //if(iseq->type != 25116) //also 28 in mark_ary
+  ygh_cstring("type", iseq_type(iseq->type));
+  //see isec.c: iseq_data_to_ary(rb_iseq_t* )
+
+  //28 is what?
+  ygh_id("refs_array_id", iseq->mark_ary);
+
+
+  ygh_id("coverage", iseq->coverage);
+  ygh_id("klass", iseq->klass);
+  ygh_id("cref_stack", (VALUE)iseq->cref_stack); //NODE*
+
+  //TODO: resolve id into str?
+  ygh_int("defined_method_id", iseq->defined_method_id);
+
+  if (iseq->compile_data != 0) {
+    struct iseq_compile_data *const compile_data = iseq->compile_data;
+    ygh_id("cd_marks_ary", compile_data->mark_ary);
+    ygh_id("cd_err_info", compile_data->err_info);
+    ygh_id("cd_catch_table_ary", compile_data->catch_table_ary);
+  }
+}
+
+void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
+
+  // VM
+  // VM/env
+  // VM/thread
+  // autoload
+  // binding
+  // encoding
+  // iseq <-
+  // method <-
+  // mutex
+  // proc <-
+  // thgroup
+  // time
+
+  const char* typename = RTYPEDDATA_TYPE(obj)->wrap_struct_name;
+
+  if(!strcmp("iseq", typename)){
+    const rb_iseq_t* iseq = RTYPEDDATA_DATA(obj);
+    dump_iseq(iseq, ctx);
+    return;
+  }
+
+  if(!strcmp("proc", typename)){
+    const rb_proc_t *proc = RTYPEDDATA_DATA(obj);
+    ygh_int("is_lambda", proc->is_lambda);
+    ygh_id("blockprocval", proc->blockprocval);
+    ygh_id("envval", proc->envval);
+    //TODO: dump refs from env here (they're dumped in env itself, but just to make analysis easier)?
+
+    //TODO: is this proc->block.iseq bound somewhere else? probably not
+    // if(proc->block.iseq && !RUBY_VM_IFUNC_P(proc->block.iseq)) {
+    //   yg_cstring("iseq");
+    //   yajl_gen_map_open(ctx->yajl);
+    //   ygh_id("id", proc->block.iseq);
+    //   dump_iseq(proc->block.iseq, ctx);
+    //   yajl_gen_map_close(ctx->yajl);
+    // } else {
+      ygh_id("iseq", proc->block.iseq);
+    // }
+    return;
+  }
+
+  if(!strcmp("VM/env", typename)){
+    const rb_env_t* env = RTYPEDDATA_DATA(obj);
+    int i = 0;
+    yg_cstring("refs");
+    yajl_gen_array_open(ctx->yajl);
+    for(; i > env->env_size; i++)
+      yg_id(env->env[i]);
+    yajl_gen_array_close(ctx->yajl);
+    return;
+  }
+
+}
+
 static VALUE rb_class_real_checked(VALUE cl)
 {
     if (cl == 0)
@@ -581,6 +703,7 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
       ygh_double("val", RFLOAT_VALUE(obj));
       break;
     case T_RATIONAL:
+      //TODO: dump value for immediate components
       yg_cstring("refs");
       yajl_gen_array_open(ctx->yajl);
       yg_id(RRATIONAL(obj)->num);
@@ -614,7 +737,7 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
           ygh_int("size", RTYPEDDATA_TYPE(obj)->dsize(RTYPEDDATA_DATA(obj)));
         }
 
-        //TODO: dump some known types
+        dump_data_if_known(obj, ctx);
       }
       break;
 
@@ -951,29 +1074,18 @@ is_pointer_to_heap(void *ptr, rb_objspace_t *objspace)
 {
     if(!ptr) return false;
     if(!objspace) objspace = GET_THREAD()->vm->objspace;
-    //GET_THREAD()->vm->main_thread->vm->objspace; 
-    
+
     register RVALUE *p = RANY(ptr);
     //register struct sorted_heaps_slot *heap;
     register size_t hi, lo, mid;
 
-    lo = lomem;
-    hi = himem;
-
-    //FIXME: nasty hack to pretend working...
-    //if(!lo) lo = 0xf00000000;
-    //if(!hi) hi = 0xffffffff00000000;
-
-    //less nasty
-
-    if (p < lo || p > hi) {
-      printf("not in range %p - %p (objspace %p, l%u used %u)\n", lo, hi, objspace, heaps_length, heaps_used);
+    if (p < lomem || p > himem) {
+      //printf("not in range %p - %p (objspace %p, l%u used %u)\n", lo, hi, objspace, heaps_length, heaps_used);
       return FALSE;
     }
     //printf("ptr in range\n");
     if ((VALUE)p % sizeof(RVALUE) != 0) return FALSE;
-    printf("ptr %p align correct\n", ptr);
-  
+    //printf("ptr %p align correct\n", ptr);
 
   //1.9.2-p290
   /* check if p looks like a pointer using bsearch*/
@@ -992,7 +1104,7 @@ is_pointer_to_heap(void *ptr, rb_objspace_t *objspace)
         hi = mid;
     }
       }
-    printf("not found");
+    //printf("not found");
     return FALSE;
 }
 
@@ -1020,14 +1132,14 @@ static void dump_machine_context(walk_ctx_t *ctx){
   //mark_locations_array(objspace, save_regs_gc_mark.v, numberof(save_regs_gc_mark.v));
   VALUE* x = save_regs_gc_mark.v;
   unsigned long n = numberof(save_regs_gc_mark.v);
-  printf("registers\n");
+  //printf("registers\n");
   while (n--) {
     VALUE v = *(x++);
     if(is_pointer_to_heap((void*)v, NULL))
       yg_id(v);
   }
 
-  printf("stack: %p %p\n", stack_start, stack_end);
+  //printf("stack: %p %p\n", stack_start, stack_end);
 
   //rb_gc_mark_locations(stack_start, stack_end);
   if(stack_start < stack_end){
@@ -1035,10 +1147,10 @@ static void dump_machine_context(walk_ctx_t *ctx){
     x = stack_start;
     while (n--) {
       VALUE v = *(x++);
-      printf("val: %p\n", (void*)v);
+      //printf("val: %p\n", (void*)v);
       //FIXME: other objspace (not default one?)
       if(is_pointer_to_heap((void*)v, NULL)) {
-        printf("ON heap\n");
+        //printf("ON heap\n");
         yg_id(v);
       }
     }
@@ -1094,7 +1206,7 @@ rb_heapdump_dump(VALUE self, VALUE filename)
   printf("global_List\n");
   for (list = GET_THREAD()->vm->global_List; list; list = list->next) {
     VALUE v = *list->varptr;
-    printf("global %p\n", v);
+    //printf("global %p\n", v);
   }
 
   yg_cstring("classes");
@@ -1116,7 +1228,7 @@ rb_heapdump_dump(VALUE self, VALUE filename)
   rb_objspace_each_objects(objspace_walker, ctx);
 
   yajl_gen_array_close(ctx->yajl);
-  flush_yajl(&ctx);
+  flush_yajl(ctx);
   yajl_gen_free(ctx->yajl);
   fclose(ctx->file);
 
@@ -1127,7 +1239,6 @@ rb_heapdump_dump(VALUE self, VALUE filename)
 
 
 void Init_heap_dump(){
-  printf("heap_dump extension loading\n");
   //ruby-internal need to be required before linking us, but just in case..
   rb_require("internal/node");
   rb_require("yajl");
