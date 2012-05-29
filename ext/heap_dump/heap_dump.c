@@ -580,11 +580,44 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
     case T_FLOAT:
       ygh_double("val", RFLOAT_VALUE(obj));
       break;
-    // T(T_BIGNUM);
-    // T(T_RATIONAL); // refs too (num/den)...
-    // T(T_COMPLEX);
+    case T_RATIONAL:
+      yg_cstring("refs");
+      yajl_gen_array_open(ctx->yajl);
+      yg_id(RRATIONAL(obj)->num);
+      yg_id(RRATIONAL(obj)->den);
+      yajl_gen_array_close(ctx->yajl);
+      break;
+    case T_COMPLEX:
+      yg_cstring("refs");
+      yajl_gen_array_open(ctx->yajl);
+      yg_id(RCOMPLEX(obj)->real);
+      yg_id(RCOMPLEX(obj)->imag);
+      yajl_gen_array_close(ctx->yajl);
+      break;
 
-    // T(T_DATA); // data of extensions + raw bytecode etc., undumpable? maybe in some way mess with mark callback? (need to intercept rb_gc_mark :( )
+    case T_BIGNUM:
+      {
+        long len = RBIGNUM_LEN(obj), i;
+        BDIGIT* digits = RBIGNUM_DIGITS(obj);
+        yg_cstring("digits");
+        yajl_gen_array_open(ctx->yajl);
+        for(i = 0; i < len; i++)
+          yg_int(digits[i]);
+        yajl_gen_array_close(ctx->yajl);
+      }
+      break;
+
+    case T_DATA: // data of extensions + raw bytecode etc., refs undumpable? maybe in some way mess with mark callback? (need to intercept rb_gc_mark :( )
+      if(RTYPEDDATA_P(obj)){
+        ygh_cstring("type_name", RTYPEDDATA_TYPE(obj)->wrap_struct_name);
+        if(RTYPEDDATA_TYPE(obj)->dsize){
+          ygh_int("size", RTYPEDDATA_TYPE(obj)->dsize(RTYPEDDATA_DATA(obj)));
+        }
+
+        //TODO: dump some known types
+      }
+      break;
+
     // T(T_UNDEF);
     default: break;
   }
