@@ -434,7 +434,8 @@ static int dump_method_entry_i(ID key, const rb_method_entry_t *me, st_data_t da
   return ST_CONTINUE;
 }
 
-static int dump_iv_entry(st_data_t key, VALUE value, walk_ctx_t *ctx){
+static int dump_iv_entry(ID key, VALUE value, walk_ctx_t *ctx){
+  yg_cstring(rb_id2name(key));
   yg_id(value);
   return ST_CONTINUE;
 }
@@ -660,10 +661,10 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
 
       if (RCLASS_EXT(obj)){
         if(RCLASS_IV_TBL(obj) && RCLASS_IV_TBL(obj)->num_entries > 0){
-          yg_cstring("refs");
-          yajl_gen_array_open(ctx->yajl); //TODO: what are iv keys?
+          yg_cstring("ivs");
+          yajl_gen_map_open(ctx->yajl); //TODO: what are iv keys?
           st_foreach(RCLASS_IV_TBL(obj), dump_iv_entry, (st_data_t)ctx);
-          yajl_gen_array_close(ctx->yajl);
+          yajl_gen_map_close(ctx->yajl);
         }
 
         #if 0
