@@ -102,8 +102,10 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
     //printf("immediate\n");
     if (FIXNUM_P(obj)) { /*ignore immediate fixnum*/
       //fixme: output some readable info
-      yajl_gen_null(ctx->yajl);
-      return; }
+      //yajl_gen_null(ctx->yajl);
+      yg_int(FIX2LONG(obj));
+      return;
+    }
     if (obj == Qtrue){ yajl_gen_bool(ctx->yajl, true); return; }
     if (SYMBOL_P(obj)) {
       //printf("symbol\n");
