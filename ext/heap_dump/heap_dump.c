@@ -627,14 +627,18 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
     case T_OBJECT:
       yg_cstring("class");
       yg_id(rb_class_of(obj));
-      yg_cstring("refs"); //ivars
-      yajl_gen_array_open(ctx->yajl);
-      {
-      long i, len = ROBJECT_NUMIV(obj);
-      VALUE *ptr = ROBJECT_IVPTR(obj);
-      for (i = 0; i < len; i++) yg_id(*ptr++);
-      }
-      yajl_gen_array_close(ctx->yajl);
+      // yg_cstring("refs"); //ivars
+      // yajl_gen_array_open(ctx->yajl);
+      // {
+      // long i, len = ROBJECT_NUMIV(obj);
+      // VALUE *ptr = ROBJECT_IVPTR(obj);
+      // for (i = 0; i < len; i++) yg_id(*ptr++);
+      // }
+      // yajl_gen_array_close(ctx->yajl);
+      yg_cstring("ivs");
+      yajl_gen_map_open(ctx->yajl); //TODO: what are iv keys?
+      rb_ivar_foreach(obj, dump_iv_entry, (st_data_t)ctx);
+      yajl_gen_map_close(ctx->yajl);
       break;
 
     case T_ICLASS:
