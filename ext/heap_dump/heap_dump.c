@@ -385,13 +385,13 @@ dump_keyvalue(st_data_t key, st_data_t value, walk_ctx_t *ctx){
 }
 
 static void dump_hash(VALUE obj, walk_ctx_t* ctx){
-  yg_cstring("refs");
-  yajl_gen_array_open(ctx->yajl);
+  yg_cstring("val");
+  yajl_gen_map_open(ctx->yajl);
   if(RHASH_SIZE(obj) > 0){
     //TODO: mark keys and values separately?
     st_foreach(RHASH(obj)->ntbl, dump_keyvalue, (st_data_t)ctx);
   }
-  yajl_gen_array_close(ctx->yajl);
+  yajl_gen_map_close(ctx->yajl);
 }
 
 static int dump_method_entry_i(ID key, const rb_method_entry_t *me, st_data_t data){
@@ -529,16 +529,16 @@ void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     ygh_id("envval", proc->envval);
     //TODO: dump refs from env here (they're dumped in env itself, but just to make analysis easier)?
 
-    //TODO: is this proc->block.iseq bound somewhere else? probably not
-    // if(proc->block.iseq && !RUBY_VM_IFUNC_P(proc->block.iseq)) {
-    //   yg_cstring("iseq");
-    //   yajl_gen_map_open(ctx->yajl);
-    //   ygh_id("id", proc->block.iseq);
-    //   dump_iseq(proc->block.iseq, ctx);
-    //   yajl_gen_map_close(ctx->yajl);
-    // } else {
+    //TODO: is this proc->block.iseq sometimes bound somewhere (seems to be not, but dupes exist)
+    if(proc->block.iseq && !RUBY_VM_IFUNC_P(proc->block.iseq)) {
+      yg_cstring("iseq");
+      yajl_gen_map_open(ctx->yajl);
+      ygh_id("id", proc->block.iseq);
+      dump_iseq(proc->block.iseq, ctx);
+      yajl_gen_map_close(ctx->yajl);
+    } else {
       ygh_id("iseq", proc->block.iseq);
-    // }
+    }
     return;
   }
 
@@ -599,7 +599,7 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
 
     case T_ARRAY:
       // if (FL_TEST(obj, ELTS_SHARED)) ...
-      yg_cstring("refs");
+      yg_cstring("val");
       yajl_gen_array_open(ctx->yajl);
       {
       long i, len = RARRAY_LEN(obj);
