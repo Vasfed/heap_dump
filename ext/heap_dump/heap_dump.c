@@ -15,6 +15,7 @@
 
 
 #include "yarv-headers/method.h"
+#include "method/internal_method.h"
 
 #include "ruby_io.h" // need rb_io_t
 
@@ -520,13 +521,6 @@ void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   }
 }
 
-//!!! from 1.9.2-p290
-struct METHOD {
-    VALUE recv;
-    VALUE rclass;
-    ID id;
-    rb_method_entry_t me;
-};
 
 void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
@@ -922,6 +916,7 @@ extern st_table *rb_class_tbl;
 #endif
 
 //FIXME: this should be autoextracted from ruby
+// see how this is done in ruby-internal gem
 typedef struct RVALUE {
     union {
   struct {
