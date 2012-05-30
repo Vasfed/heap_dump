@@ -1301,14 +1301,20 @@ rb_heapdump_dump(VALUE self, VALUE filename)
   return Qnil;
 }
 
-
 void Init_heap_dump(){
   //ruby-internal need to be required before linking us, but just in case..
+  ID require, gem;
+  CONST_ID(require, "require");
+  CONST_ID(gem, "gem");
+  CONST_ID(classid, "__classid__");
+
+  rb_require("rubygems");
+  rb_funcall(rb_mKernel, gem, 1, rb_str_new2("yajl-ruby"));
+  rb_funcall(rb_mKernel, gem, 1, rb_str_new2("ruby-internal")); //TODO: version requirements
   rb_require("internal/node");
   rb_require("yajl");
-  init_node_type_descrips();
 
-  CONST_ID(classid, "__classid__");
+  init_node_type_descrips();
 
   rb_mHeapDumpModule = rb_define_module("HeapDump");
   rb_define_singleton_method(rb_mHeapDumpModule, "dump_ext", rb_heapdump_dump, 1);
