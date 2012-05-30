@@ -31,6 +31,18 @@ HeapDump.dump
 this will run GC and then create a dump.json with live heap contents.
 Json contains one object per line, thus can be easily grepped.
 
+### Importing dump in MongoDB
+
+Dump can be imported in mongo for some map-reduce, easy script access etc.
+
+```bash
+
+cat dump.json | sed 's/^[,\[]//;s/\]$//;s/^{"id"/{"_id"/' | mongoimport -d database_name -c collection_name --drop --type json
+```
+
+Note that even small dumps usually contain a few hundred thousands objects, so do not forget to add some indexes.
+
+
 ## Contributing
 
 1. Fork it
