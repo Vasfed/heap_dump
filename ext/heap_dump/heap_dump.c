@@ -1236,16 +1236,17 @@ static int dump_iv_entry1(ID key, rb_const_entry_t* ce/*st_data_t val*/, walk_ct
   return ST_CONTINUE;
 }
 
-static VALUE
-rb_heapdump_dump(VALUE self, VALUE filename)
-{
+
+//public symbol, can be used from GDB
+void heapdump_dump(const char* filename){
   struct walk_ctx ctx_o, *ctx = &ctx_o;
   memset(ctx, 0, sizeof(*ctx));
 
-  Check_Type(filename, T_STRING);
-
-  printf("Dump should go to %s\n", RSTRING_PTR(filename));
-  ctx->file = fopen(RSTRING_PTR(filename), "wt");
+  if(!filename){
+    filename = "dump.json";
+  }
+  printf("Dump should go to %s\n", filename);
+  ctx->file = fopen(filename, "wt");
   ctx->yajl = yajl_gen_alloc(NULL,NULL);
   yajl_gen_array_open(ctx->yajl);
 
@@ -1290,7 +1291,13 @@ rb_heapdump_dump(VALUE self, VALUE filename)
   fclose(ctx->file);
 
   printf("Walker called %d times, seen %d live objects.\n", ctx->walker_called, ctx->live_objects);
+}
 
+static VALUE
+rb_heapdump_dump(VALUE self, VALUE filename)
+{
+  Check_Type(filename, T_STRING);
+  heapdump_dump(RSTRING_PTR(filename));
   return Qnil;
 }
 

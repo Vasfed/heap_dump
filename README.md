@@ -28,6 +28,13 @@ In your code call:
 HeapDump.dump
 ```
 
+Or call from gdb function (null filename defaults to 'dump.json')
+
+```c
+
+void heapdump_dump(const char* filename);
+```
+
 this will run GC and then create a dump.json with live heap contents.
 Json contains one object per line, thus can be easily grepped.
 
