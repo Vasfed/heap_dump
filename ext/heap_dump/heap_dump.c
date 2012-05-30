@@ -69,6 +69,8 @@ static void flush_yajl(walk_ctx_t *ctx){
   }
 }
 
+static inline int is_pointer_to_heap(void *ptr, void* osp);
+
 static inline const char* rb_builtin_type(VALUE obj){
   switch(BUILTIN_TYPE(obj)){
     #define T(t) case t: return #t;
@@ -343,8 +345,17 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 
     //iteration func - blocks,procs,lambdas etc:
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
-     // printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
+      printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
       //FIXME: closures may leak references?
+      if(is_pointer_to_heap(obj->u2.node, 0)){
+        printf("in heap: %p\n", obj->u2.node);
+        //TODO: do we need to dump it inline?
+        yg_id(obj->u2.node);
+      }
+      if(is_pointer_to_heap( (void*)obj->nd_aid, 0)){
+        printf("in heap: %p\n", (void*)obj->nd_aid);
+        yg_id(obj->nd_aid);
+      }
       break;
 
     //empty:
@@ -396,32 +407,27 @@ static void dump_hash(VALUE obj, walk_ctx_t* ctx){
   yajl_gen_map_close(ctx->yajl);
 }
 
-static int dump_method_entry_i(ID key, const rb_method_entry_t *me, st_data_t data){
-  walk_ctx_t *ctx = (void*)data;
-  if(key == ID_ALLOCATOR) {
-    yg_cstring("___allocator___");
-  } else {
-    yg_cstring(rb_id2name(key));
-  }
-
-  const rb_method_definition_t *def = me->def;
-
-  //gc_mark(objspace, me->klass, lev);?
+static void dump_method_definition_as_value(const rb_method_definition_t *def, walk_ctx_t *ctx){
   if (!def) {
     yajl_gen_null(ctx->yajl);
-    return ST_CONTINUE;
+    return;
   }
+  //printf("mdef %d\n", def->type);
 
   switch (def->type) {
     case VM_METHOD_TYPE_ISEQ:
+      //printf("method iseq %p\n", def->body.iseq);
+      //printf("self %p\n", def->body.iseq->self);
       yg_id(def->body.iseq->self);
       break;
     case VM_METHOD_TYPE_CFUNC: yg_cstring("(CFUNC)"); break;
     case VM_METHOD_TYPE_ATTRSET:
     case VM_METHOD_TYPE_IVAR:
+      //printf("method ivar\n");
       yg_id(def->body.attr.location);
       break;
     case VM_METHOD_TYPE_BMETHOD:
+      //printf("method binary\n");
       yg_id(def->body.proc);
       break;
     case VM_METHOD_TYPE_ZSUPER: yg_cstring("(ZSUPER)"); break;
@@ -433,6 +439,19 @@ static int dump_method_entry_i(ID key, const rb_method_entry_t *me, st_data_t da
       yajl_gen_null(ctx->yajl);
       break;
     }
+}
+
+static int dump_method_entry_i(ID key, const rb_method_entry_t *me, st_data_t data){
+  walk_ctx_t *ctx = (void*)data;
+  if(key == ID_ALLOCATOR) {
+    yg_cstring("___allocator___");
+  } else {
+    yg_cstring(rb_id2name(key));
+  }
+
+  //gc_mark(objspace, me->klass, lev);?
+  //printf("method entry\n");
+  dump_method_definition_as_value(me->def, ctx);
   return ST_CONTINUE;
 }
 
@@ -501,13 +520,21 @@ void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   }
 }
 
+//!!! from 1.9.2-p290
+struct METHOD {
+    VALUE recv;
+    VALUE rclass;
+    ID id;
+    rb_method_entry_t me;
+};
+
 void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
   // VM
   // VM/env
   // VM/thread
   // autoload
-  // binding
+  // binding <-
   // encoding
   // iseq <-
   // method <-
@@ -541,6 +568,33 @@ void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     } else {
       ygh_id("iseq", proc->block.iseq);
     }
+    return;
+  }
+
+  if(!strcmp("method", typename)){
+    //printf("method\n");
+    struct METHOD *data = RTYPEDDATA_DATA(obj);
+    //printf("method %p: %p %p\n", data, data->rclass, data->recv);
+    ygh_id("rclass", data->rclass);
+    ygh_id("recv", data->recv);
+    ygh_int("method_id", data->id);
+
+    yg_cstring("method");
+    if(data->me.def){
+      //printf("methof def %p\n", &data->me);
+      dump_method_definition_as_value(data->me.def, ctx);
+      //printf("meth end\n");
+    }
+    return;
+  }
+
+  if(!strcmp("binding", typename)){
+    //printf("binding\n");
+    rb_binding_t *bind = RTYPEDDATA_DATA(obj);
+    //printf("binding %p\n", bind);
+    if(!bind) return;
+    ygh_id("env", bind->env);
+    ygh_id("filename", bind->filename);
     return;
   }
 
@@ -1077,8 +1131,9 @@ typedef struct rb_objspace {
 #define RANY(o) ((RVALUE*)(o))
 
 static inline int
-is_pointer_to_heap(void *ptr, rb_objspace_t *objspace)
+is_pointer_to_heap(void *ptr, void* osp)
 {
+    rb_objspace_t *objspace = osp;
     if(!ptr) return false;
     if(!objspace) objspace = GET_THREAD()->vm->objspace;
 
