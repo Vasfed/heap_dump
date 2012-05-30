@@ -7,6 +7,7 @@ Rake::ExtensionTask.new('heap_dump')
 
 desc "Simple dump test,just to check if extension compiles and does not segfault on simple dump"
 task :test => :compile do
+  require "bundler/setup"
   require 'heap_dump'
   puts "Dumping..."
   HeapDump.dump
