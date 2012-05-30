@@ -1258,6 +1258,7 @@ void heapdump_dump(const char* filename){
 
   dump_machine_context(ctx);
   flush_yajl(ctx);
+  fprintf(ctx->file, "\n");
 
   struct gc_list *list;
   /* mark protected global variables */
