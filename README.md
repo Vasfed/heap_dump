@@ -28,15 +28,28 @@ In your code call:
 HeapDump.dump
 ```
 
-Or call from gdb function (null filename defaults to 'dump.json')
-
-```c
-
-void heapdump_dump(const char* filename);
-```
-
 this will run GC and then create a dump.json with live heap contents.
 Json contains one object per line, thus can be easily grepped.
+
+### Injecting into live process via GDB
+
+run gdb
+
+```bash
+
+gdb `which ruby` $YOUR_PID
+```
+
+And then run commands like:
+
+```
+call rb_require("/Users/vasfed/work/heap_dump/lib/heap_dump.bundle")
+call heapdump_dump("mydump.json")
+```
+
+or `call heapdump_dump(0)`, filename defaults to dump.json.
+
+Note that ruby-internal and yajl-ruby gems should be available to process this being injected into.
 
 ### Importing dump in MongoDB
 
