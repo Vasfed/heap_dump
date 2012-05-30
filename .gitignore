@@ -18,3 +18,4 @@ tmp
 *.bundle
 *.so
 *.dll
+dump.json
