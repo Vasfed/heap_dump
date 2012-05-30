@@ -1,6 +1,9 @@
 # HeapDump
 
-TODO: Write a gem description
+Low-level ruby heap memory dump - including data and code references.
+Written across ruby 1.9.2-p290 data structures. Other rubies support may come later (or may not).
+
+Currently is under development and output format may differ.
 
 ## Installation
 
@@ -18,7 +21,15 @@ Or install it yourself as:
 
 ## Usage
 
-TODO: Write usage instructions here
+In your code call:
+
+```ruby
+
+HeapDump.dump
+```
+
+this will run GC and then create a dump.json with live heap contents.
+Json contains one object per line, thus can be easily grepped.
 
 ## Contributing
 
