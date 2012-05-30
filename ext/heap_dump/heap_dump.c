@@ -477,7 +477,7 @@ static int dump_const_entry_i(ID key, const rb_const_entry_t *ce, walk_ctx_t *ct
   return ST_CONTINUE;
 }
 
-const char* iseq_type(VALUE type){
+static const char* iseq_type(VALUE type){
   switch(type){
     case ISEQ_TYPE_TOP:    return "top";
     case ISEQ_TYPE_METHOD: return "method";
@@ -493,7 +493,7 @@ const char* iseq_type(VALUE type){
   return "unknown";
 }
 
-void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
+static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   if(iseq->name) ygh_rstring("name", iseq->name);
   if(iseq->filename) ygh_rstring("filename", iseq->filename);
   ygh_int("line", iseq->line_no);
@@ -522,7 +522,7 @@ void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
 }
 
 
-void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
+static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
   // VM
   // VM/env
@@ -836,11 +836,11 @@ static int objspace_walker(void *vstart, void *vend, int stride, walk_ctx_t *ctx
 // #elif defined(__i386) && defined(__GNUC__) && !defined(__native_client__)
 // #define SET_MACHINE_STACK_END(p) __asm__("movl\t%%esp, %0" : "=r" (*(p)))
 // #else
-NOINLINE(void rb_gc_set_stack_end(VALUE **stack_end_p));
+NOINLINE(static void rb_gc_set_stack_end(VALUE **stack_end_p));
 #define SET_MACHINE_STACK_END(p) rb_gc_set_stack_end(p)
 #define USE_CONSERVATIVE_STACK_END
 // #endif
-void
+static void
 rb_gc_set_stack_end(VALUE **stack_end_p)
 {
     VALUE stack_end;
