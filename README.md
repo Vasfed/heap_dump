@@ -80,6 +80,8 @@ Format is not stable yet, but looks like this:
 ,{"id":70365602717060,"bt":"T_DATA","type_name":"proc","size":72,"is_lambda":0,"blockprocval":null,"envval":70365602712440,"iseq":{"id":70365600821896,"name":"block in <class:FileList>","filename":"/Users/vasfed/.rvm/gems/ruby-1.9.2-p290/gems/rake-0.9.2.2/lib/rake/file_list.rb","line":743,"type":"block","refs_array_id":70365611724600,"coverage":null,"klass":null,"cref_stack":70365611799480,"defined_method_id":0}}
 ,{"id":70365603045160,"bt":"T_DATA","type_name":"VM/env","size":128,"refs":[]}
 ,{"id":70365613258980,"bt":"T_ICLASS","name":"Object","methods":{"==":"(CFUNC)",">":"(CFUNC)",">=":"(CFUNC)","<":"(CFUNC)","<=":"(CFUNC)","between?":"(CFUNC)"},"ivs":{"__classid__":"Comparable"},"super":70365613259120}
+,{"id":70151795145340,"bt":"T_DATA","type_name":"proc","size":72,"is_lambda":0,"blockprocval":null,"envval":70151795224840,"iseq":{"id":70151828020360,"name":"block in subscribe","filename":"/Users/vasfed/acceptor.rb","line":91,"type":"block","refs_array_id":70151796420080,"coverage":null,"klass":null,"cref_stack":70151796421080,"defined_method_id":0}}
+,{"id":70151795224840,"bt":"T_DATA","type_name":"VM/env","size":120,"refs":[70151806738200,70151796176180,"string1",null,0,70151795224840,null]}
 ]
 ```
 etc.
