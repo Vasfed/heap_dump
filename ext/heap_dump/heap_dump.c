@@ -118,7 +118,7 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
     }
     if (obj == Qundef) { yg_cstring("(undef)"); return; }
 
-    printf("immediate p %p?\n", obj);
+    printf("immediate p %p?\n", (void*)obj);
     yg_cstring("(unknown)");
     return;
   } else /*non-immediate*/ {
@@ -346,12 +346,11 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 
     //iteration func - blocks,procs,lambdas etc:
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
-      printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
-      //FIXME: closures may leak references?
+      //printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
       if(is_pointer_to_heap(obj->u2.node, 0)){
         printf("in heap: %p\n", obj->u2.node);
         //TODO: do we need to dump it inline?
-        yg_id(obj->u2.node);
+        yg_id((VALUE)obj->u2.node);
       }
       if(is_pointer_to_heap( (void*)obj->nd_aid, 0)){
         printf("in heap: %p\n", (void*)obj->nd_aid);
@@ -489,14 +488,14 @@ static const char* iseq_type(VALUE type){
     case ISEQ_TYPE_MAIN:   return "main";
     case ISEQ_TYPE_DEFINED_GUARD: return "defined_guard";
   }
-  printf("unknown iseq type %d!\n", type);
+  printf("unknown iseq type %p!\n", (void*)type);
   return "unknown";
 }
 
 static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   if(iseq->name) ygh_rstring("name", iseq->name);
   if(iseq->filename) ygh_rstring("filename", iseq->filename);
-  ygh_int("line", iseq->line_no);
+  ygh_int("line", FIX2INT(iseq->line_no));
 
   //if(iseq->type != 25116) //also 28 in mark_ary
   ygh_cstring("type", iseq_type(iseq->type));
@@ -556,6 +555,7 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     if(proc->block.iseq && !RUBY_VM_IFUNC_P(proc->block.iseq)) {
       yg_cstring("iseq");
       yajl_gen_map_open(ctx->yajl);
+      //FIXME: id may be different (due to RBasic fields)!!!
       ygh_id("id", proc->block.iseq);
       dump_iseq(proc->block.iseq, ctx);
       yajl_gen_map_close(ctx->yajl);
