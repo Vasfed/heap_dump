@@ -597,7 +597,7 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     int i = 0;
     yg_cstring("refs");
     yajl_gen_array_open(ctx->yajl);
-    for(; i > env->env_size; i++)
+    for(; i < env->env_size; i++)
       yg_id(env->env[i]);
     yajl_gen_array_close(ctx->yajl);
     return;
