@@ -89,6 +89,33 @@ bt field is ruby builtin type name.
 Where available - val/refs/ivs/etc. field present with hash/array of references.
 Long numbers usually are object ids.
 
+## What may leak
+
+### Brief Ruby GC decription
+(brief) Ruby has mark-and-sweep GC, this means that it does not leak in traditional way when you lose some pointer and do not free memory.
+Ruby leaks references. But also it is different from reference counting GC, like one in python.
+
+For example, 3 objects:
+
+```
+A -> B -> C
+```
+let's assume that A is a global variable or is referenced in stack. In this chain C does not get freed bacause it has a reference path from global/stack.
+
+If reference to B gets deleted (for example A.b = nil):
+
+```
+A  B -> C
+```
+C still is referenced by something, but both B and C will be freed, as there's no path.
+
+### Examples of references
+
+Obvious references: from variables, instance variables (including class), arrays, hashes, etc.
+
+Less obvious: method closures. These are stored in T_DATAs with 'VM/env' type.
+Latest version of heap_dump allows to trace such references: search for a env, by it's id you can find it's owner iseq, which usually has file and line number where block/lambda/proc was created.
+
 ## Contributing
 
 1. Fork it
