@@ -348,12 +348,12 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
       //printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
       if(is_pointer_to_heap(obj->u2.node, 0)){
-        printf("in heap: %p\n", obj->u2.node);
+        //printf("in heap: %p\n", obj->u2.node);
         //TODO: do we need to dump it inline?
         yg_id((VALUE)obj->u2.node);
       }
       if(is_pointer_to_heap( (void*)obj->nd_aid, 0)){
-        printf("in heap: %p\n", (void*)obj->nd_aid);
+        //printf("in heap: %p\n", (void*)obj->nd_aid);
         yg_id(obj->nd_aid);
       }
       break;
