@@ -535,6 +535,7 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
   // proc <-
   // thgroup
   // time
+  // etc...
 
   const char* typename = RTYPEDDATA_TYPE(obj)->wrap_struct_name;
 
@@ -632,6 +633,105 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     //     }
     return;
   }
+
+  if(!strcmp("VM/thread", typename)){
+    const rb_thread_t *th = RTYPEDDATA_DATA(obj);
+    if(th->stack){
+      VALUE *p = th->stack;
+      VALUE *sp = th->cfp->sp;
+      rb_control_frame_t *cfp = th->cfp;
+      rb_control_frame_t *limit_cfp = (void *)(th->stack + th->stack_size);
+
+      yg_cstring("stack");
+      yajl_gen_array_open(ctx->yajl);
+      while (p < sp) yg_id(*p++);
+      yajl_gen_array_close(ctx->yajl);
+
+      yg_cstring("cfp");
+      yajl_gen_array_open(ctx->yajl);
+      while (cfp != limit_cfp) {
+        yajl_gen_map_open(ctx->yajl);
+        rb_iseq_t *iseq = cfp->iseq;
+        ygh_id("proc", cfp->proc);
+        ygh_id("self", cfp->self);
+        if (iseq) {
+            ygh_id("iseq", RUBY_VM_NORMAL_ISEQ_P(iseq) ? iseq->self : (VALUE)iseq);
+            int line_no = rb_vm_get_sourceline(cfp);
+            ygh_rstring("file", iseq->filename);
+            ygh_int("line_no",line_no);
+        }
+        if (cfp->me){
+          const rb_method_entry_t *me = cfp->me;
+          //((rb_method_entry_t *)cfp->me)->mark = 1;
+          yg_cstring("me");
+          yajl_gen_map_open(ctx->yajl);
+          //
+          //rb_method_flag_t flag;
+       //   char mark;
+          //rb_method_definition_t *def;
+          ygh_id("klass", me->klass);
+          ID id = me->called_id;
+
+          if(me->def){
+            id = me->def->original_id;
+            yg_cstring("def");
+            dump_method_definition_as_value(me->def, ctx);
+          }
+          if(id != ID_ALLOCATOR)
+            ygh_rstring("meth_id", rb_id2str(id));
+          yajl_gen_map_close(ctx->yajl);
+        }
+        cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp);
+        yajl_gen_map_close(ctx->yajl);
+      }
+      yajl_gen_array_close(ctx->yajl);
+    }
+
+    //TODO: mark other...
+    ygh_id("first_proc", th->first_proc);
+    if (th->first_proc) ygh_id("first_proc", th->first_args);
+
+    ygh_id("thgroup", th->thgroup);
+    ygh_id("value", th->value);
+    ygh_id("errinfo", th->errinfo);
+    ygh_id("thrown_errinfo", th->thrown_errinfo);
+    ygh_id("local_svar", th->local_svar);
+    ygh_id("top_self", th->top_self);
+    ygh_id("top_wrapper", th->top_wrapper);
+    ygh_id("fiber", th->fiber);
+    ygh_id("root_fiber", th->root_fiber);
+    ygh_id("stat_insn_usage", th->stat_insn_usage);
+    ygh_id("last_status", th->last_status);
+    ygh_id("locking_mutex", th->locking_mutex);
+
+      // rb_mark_tbl(th->local_storage);
+
+      // if (GET_THREAD() != th && th->machine_stack_start && th->machine_stack_end) {
+      //     rb_gc_mark_machine_stack(th);
+      //     rb_gc_mark_locations((VALUE *)&th->machine_regs,
+      //        (VALUE *)(&th->machine_regs) +
+      //        sizeof(th->machine_regs) / sizeof(VALUE));
+      // }
+
+      // mark_event_hooks(th->event_hooks);
+
+    return;
+  }
+
+  //FIXME: autogen this from ruby (this copied from 1.9.2p290)
+  struct thgroup {
+    int enclosed;
+    VALUE group;
+  };
+
+  if(!strcmp("thgroup", typename)){
+    const struct thgroup* gr = RTYPEDDATA_DATA(obj);
+    ygh_id("group", gr->group);
+    ygh_int("enclosed", gr->enclosed);
+    return;
+  }
+
+
 }
 
 static VALUE rb_class_real_checked(VALUE cl)
