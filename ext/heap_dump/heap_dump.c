@@ -535,6 +535,8 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
   // proc <-
   // thgroup
   // time
+  // barrier
+  // strio
   // etc...
 
   const char* typename = RTYPEDDATA_TYPE(obj)->wrap_struct_name;
@@ -551,6 +553,11 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     yajl_gen_map_open(ctx->yajl);
     st_foreach(tbl, dump_method_entry_i, (st_data_t)ctx);
     yajl_gen_map_close(ctx->yajl);
+    return;
+  }
+
+  if(!strcmp("barrier", typename)){
+    ygh_id("val", (VALUE)RTYPEDDATA_DATA(obj));
     return;
   }
 
