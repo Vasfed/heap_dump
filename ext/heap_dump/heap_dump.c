@@ -520,6 +520,32 @@ static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   }
 }
 
+static void dump_block(const rb_block_t* block, walk_ctx_t *ctx){
+    // VALUE self;     /* share with method frame if it's only block */
+    // VALUE *lfp;     /* share with method frame if it's only block */
+    // VALUE *dfp;     /* share with method frame if it's only block */
+    // rb_iseq_t *iseq;
+    // VALUE proc;
+
+  if(block->iseq && !RUBY_VM_IFUNC_P(block->iseq)) {
+      yg_cstring("iseq");
+      yajl_gen_map_open(ctx->yajl);
+      //FIXME: id may be different (due to RBasic fields)!!!
+      ygh_id("id", block->iseq);
+      dump_iseq(block->iseq, ctx);
+      yajl_gen_map_close(ctx->yajl);
+    } else {
+      ygh_id("iseq", block->iseq);
+    }
+
+  ygh_id("self", block->self);
+
+  ygh_id("lfp", block->lfp);
+  ygh_id("dfp", block->dfp);
+  //lfp = local frame pointer? local_num elems?
+  // dfp = ?
+}
+
 
 static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
@@ -569,16 +595,10 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     //TODO: dump refs from env here (they're dumped in env itself, but just to make analysis easier)?
 
     //TODO: is this proc->block.iseq sometimes bound somewhere (seems to be not, but dupes exist)
-    if(proc->block.iseq && !RUBY_VM_IFUNC_P(proc->block.iseq)) {
-      yg_cstring("iseq");
-      yajl_gen_map_open(ctx->yajl);
-      //FIXME: id may be different (due to RBasic fields)!!!
-      ygh_id("id", proc->block.iseq);
-      dump_iseq(proc->block.iseq, ctx);
-      yajl_gen_map_close(ctx->yajl);
-    } else {
-      ygh_id("iseq", proc->block.iseq);
-    }
+    yg_cstring("block");
+    yajl_gen_map_open(ctx->yajl);
+    dump_block(&proc->block, ctx);
+    yajl_gen_map_close(ctx->yajl);
     return;
   }
 
@@ -612,11 +632,19 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
   if(!strcmp("VM/env", typename)){
     const rb_env_t* env = RTYPEDDATA_DATA(obj);
     int i = 0;
-    yg_cstring("refs");
+    yg_cstring("env");
     yajl_gen_array_open(ctx->yajl);
     for(; i < env->env_size; i++)
       yg_id(env->env[i]);
     yajl_gen_array_close(ctx->yajl);
+
+    ygh_int("local_size", env->local_size);
+    ygh_id("prev_envval", env->prev_envval);
+
+    yg_cstring("block");
+    yajl_gen_map_open(ctx->yajl);
+    dump_block(&env->block, ctx);
+    yajl_gen_map_close(ctx->yajl);
     return;
   }
 
