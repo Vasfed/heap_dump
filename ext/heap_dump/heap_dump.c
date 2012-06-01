@@ -608,6 +608,7 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     const rb_vm_t *vm = RTYPEDDATA_DATA(obj);
 
     ygh_id("thgroup_default", vm->thgroup_default);
+    // rb_gc_register_mark_object - goes in that array (not to be freed until vm dies)
     ygh_id("mark_object_ary", vm->mark_object_ary);
     ygh_id("load_path", vm->load_path);
     ygh_id("loaded_features", vm->loaded_features);
