@@ -603,6 +603,35 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     return;
   }
 
+  if(!strcmp("VM", typename)){
+    const rb_vm_t *vm = RTYPEDDATA_DATA(obj);
+
+    ygh_id("thgroup_default", vm->thgroup_default);
+    ygh_id("mark_object_ary", vm->mark_object_ary);
+    ygh_id("load_path", vm->load_path);
+    ygh_id("loaded_features", vm->loaded_features);
+    ygh_id("top_self", vm->top_self);
+    ygh_id("coverages", vm->coverages);
+
+    //TODO:
+    // if (vm->living_threads) {
+    //       st_foreach(vm->living_threads, vm_mark_each_thread_func, 0);
+    //   }
+    //   rb_gc_mark_locations(vm->special_exceptions, vm->special_exceptions + ruby_special_error_count);
+
+    //   if (vm->loading_table) {
+    //       rb_mark_tbl(vm->loading_table);
+    //   }
+
+    //   mark_event_hooks(vm->event_hooks);
+
+    //   for (i = 0; i < RUBY_NSIG; i++) {
+    //       if (vm->trap_list[i].cmd)
+    //     rb_gc_mark(vm->trap_list[i].cmd);
+    //   }
+    //     }
+    return;
+  }
 }
 
 static VALUE rb_class_real_checked(VALUE cl)
