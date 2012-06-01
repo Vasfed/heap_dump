@@ -545,6 +545,15 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     return;
   }
 
+  if(!strcmp("autoload", typename)){
+    const st_table *tbl = RTYPEDDATA_DATA(obj);
+    yg_cstring("val");
+    yajl_gen_map_open(ctx->yajl);
+    st_foreach(tbl, dump_method_entry_i, (st_data_t)ctx);
+    yajl_gen_map_close(ctx->yajl);
+    return;
+  }
+
   if(!strcmp("proc", typename)){
     const rb_proc_t *proc = RTYPEDDATA_DATA(obj);
     ygh_int("is_lambda", proc->is_lambda);
