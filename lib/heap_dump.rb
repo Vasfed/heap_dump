@@ -4,8 +4,8 @@ require "heap_dump/version"
 require 'internal/node'
 require 'yajl'
 
-#TODO: more cross-platform require for extension
-require 'heap_dump.bundle'
+require 'rbconfig'
+require "heap_dump.#{RbConfig::CONFIG['DLEXT']}"
 
 module HeapDump
   # Dumps ruby object space to file
