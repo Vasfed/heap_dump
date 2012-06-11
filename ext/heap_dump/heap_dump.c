@@ -52,6 +52,12 @@ static ID classid;
 #define ygh_cstring(key,str) {yg_cstring(key); yg_cstring(str);}
 #define ygh_rstring(key,str) {yg_cstring(key); yg_rstring(str);}
 
+#define yg_map() yajl_gen_map_open(ctx->yajl);
+#define yg_map_end() yajl_gen_map_close(ctx->yajl);
+#define yg_array() yajl_gen_array_open(ctx->yajl);
+#define yg_array_end() yajl_gen_array_close(ctx->yajl);
+
+
 // context for objectspace_walker callback
 typedef struct walk_ctx {
   int walker_called;
@@ -547,6 +553,66 @@ static void dump_block(const rb_block_t* block, walk_ctx_t *ctx){
 }
 
 
+#define CAPTURE_JUST_VALID_VM_STACK 1
+
+enum context_type {
+    CONTINUATION_CONTEXT = 0,
+    FIBER_CONTEXT = 1,
+    ROOT_FIBER_CONTEXT = 2
+};
+
+typedef struct rb_context_struct {
+    enum context_type type;
+    VALUE self;
+    int argc;
+    VALUE value;
+    VALUE *vm_stack;
+#ifdef CAPTURE_JUST_VALID_VM_STACK
+    size_t vm_stack_slen;  /* length of stack (head of th->stack) */
+    size_t vm_stack_clen;  /* length of control frames (tail of th->stack) */
+#endif
+    VALUE *machine_stack;
+    VALUE *machine_stack_src;
+#ifdef __ia64
+    VALUE *machine_register_stack;
+    VALUE *machine_register_stack_src;
+    int machine_register_stack_size;
+#endif
+    rb_thread_t saved_thread;
+    rb_jmpbuf_t jmpbuf;
+    size_t machine_stack_size;
+} rb_context_t;
+
+enum fiber_status {
+    CREATED,
+    RUNNING,
+    TERMINATED
+};
+
+///TODO: move this out
+typedef struct rb_fiber_struct {
+    rb_context_t cont;
+    VALUE prev;
+    enum fiber_status status;
+    struct rb_fiber_struct *prev_fiber;
+    struct rb_fiber_struct *next_fiber;
+} rb_fiber_t;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
   // VM
@@ -679,6 +745,32 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     return;
   }
 
+  if(!strcmp("fiber", typename)){
+    rb_fiber_t *fib = RTYPEDDATA_DATA(obj);
+    ygh_id("prev", fib->prev);
+    //ygh_int("cont", fib->cont);
+    yg_cstring("cont");
+    yg_map();
+      ygh_int("type", fib->cont.type);
+      ygh_id("self", fib->cont.self);
+      ygh_id("value", fib->cont.value);
+      VALUE *vm_stack = fib->cont.vm_stack;
+      int i = 0;
+      for(; vm_stack && i < fib->cont.vm_stack_slen + fib->cont.vm_stack_clen; i++){
+        yg_id(*(vm_stack++));
+      }
+      vm_stack = fib->cont.vm_stack;
+      for(i = 0;vm_stack && i<fib->cont.machine_stack_size; i++){
+        yg_id(*(vm_stack++));
+      }
+      yg_cstring("stack");
+      yg_array();
+
+      yg_array_end();
+    yg_map_end();
+    return;
+  }
+
   if(!strcmp("VM/thread", typename)){
     const rb_thread_t *th = RTYPEDDATA_DATA(obj);
     if(th->stack){
@@ -758,8 +850,22 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
       //        sizeof(th->machine_regs) / sizeof(VALUE));
       // }
 
-      // mark_event_hooks(th->event_hooks);
+    yg_cstring("local_storage");
+    yajl_gen_array_open(ctx->yajl);
+    if(th->local_storage){
+      st_foreach(th->local_storage, dump_iv_entry, ctx); //?
+    }
+    yajl_gen_array_close(ctx->yajl);
 
+      // mark_event_hooks(th->event_hooks);
+    rb_event_hook_t *hook = th->event_hooks;
+    yg_cstring("event_hooks");
+    yajl_gen_array_open(ctx->yajl);
+    while(hook){
+      yg_id(hook->data);
+      hook = hook->next;
+    }
+    yajl_gen_array_close(ctx->yajl);
     return;
   }
 
@@ -1350,7 +1456,7 @@ static void dump_machine_context(walk_ctx_t *ctx){
   VALUE *stack_start, *stack_end;
 
 
-  yg_cstring("stack_and_registers");
+  yg_cstring("registers");
   yajl_gen_array_open(ctx->yajl);
 
   FLUSH_REGISTER_WINDOWS;
@@ -1369,9 +1475,11 @@ static void dump_machine_context(walk_ctx_t *ctx){
     if(is_pointer_to_heap((void*)v, NULL))
       yg_id(v);
   }
+  yajl_gen_array_close(ctx->yajl);
 
   //printf("stack: %p %p\n", stack_start, stack_end);
-
+  yg_cstring("stack");
+  yajl_gen_array_open(ctx->yajl);
   //rb_gc_mark_locations(stack_start, stack_end);
   if(stack_start < stack_end){
     n = stack_end - stack_start;
