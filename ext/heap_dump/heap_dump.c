@@ -606,7 +606,6 @@ typedef struct rb_fiber_struct {
 
 
 
-
 static void yg_fiber_status(enum fiber_status status, walk_ctx_t* ctx){
   switch(status){
     case CREATED: yg_cstring("CREATED"); break;
@@ -615,6 +614,13 @@ static void yg_fiber_status(enum fiber_status status, walk_ctx_t* ctx){
   }
 }
 
+static void yg_fiber_type(enum context_type status, walk_ctx_t* ctx){
+  switch(status){
+    case CONTINUATION_CONTEXT: yg_cstring("CONTINUATION_CONTEXT"); break;
+    case FIBER_CONTEXT: yg_cstring("FIBER_CONTEXT"); break;
+    case ROOT_FIBER_CONTEXT: yg_cstring("ROOT_FIBER_CONTEXT"); break;
+  }
+}
 
 
 static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx){
@@ -851,11 +857,14 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     rb_fiber_t *fib = RTYPEDDATA_DATA(obj);
     ygh_id("prev", fib->prev);
     //ygh_int("cont", fib->cont);
+    yg_cstring("status");
+    yg_fiber_status(fib->status, ctx);
+
     yg_cstring("cont");
     yg_map();
       //ygh_int("type", fib->cont.type);
       yg_cstring("type");
-      yg_fiber_status(fib->cont.type, ctx);
+      yg_fiber_type(fib->cont.type, ctx);
 
       ygh_id("self", fib->cont.self);
       ygh_id("value", fib->cont.value);
