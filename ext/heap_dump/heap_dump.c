@@ -1437,6 +1437,74 @@ is_pointer_to_heap(void *ptr, void* osp)
     return FALSE;
 }
 
+
+
+static int
+dump_backtrace(walk_ctx_t *ctx, VALUE file, int line, VALUE method)
+{
+    yg_map();
+    const char *filename = NIL_P(file) ? "<ruby>" : RSTRING_PTR(file);
+
+    ygh_cstring("file", filename);
+    ygh_int("line", line);
+
+    if (NIL_P(method)) {
+      //fprintf(fp, "\tfrom %s:%d:in unknown method\n", filename, line);
+    }
+    else {
+      //fprintf(fp, "\tfrom %s:%d:in `%s'\n", filename, line, RSTRING_PTR(method));
+      ygh_rstring("method", method);
+    }
+    yg_map_end();
+    return FALSE;
+}
+
+//TODO: autogen, this func is just copied from vm.c
+//typedef int rb_backtrace_iter_func(void *, VALUE, int, VALUE);
+static int
+vm_backtrace_each(rb_thread_t *th, int lev, void (*init)(void *), rb_backtrace_iter_func *iter, void *arg)
+{
+    const rb_control_frame_t *limit_cfp = th->cfp;
+    const rb_control_frame_t *cfp = (void *)(th->stack + th->stack_size);
+    VALUE file = Qnil;
+    int line_no = 0;
+
+    cfp -= 2;
+    while (lev-- >= 0) {
+  if (++limit_cfp > cfp) {
+      return FALSE;
+  }
+    }
+    if (init) (*init)(arg);
+    limit_cfp = RUBY_VM_NEXT_CONTROL_FRAME(limit_cfp);
+    if (th->vm->progname) file = th->vm->progname;
+    while (cfp > limit_cfp) {
+  if (cfp->iseq != 0) {
+      if (cfp->pc != 0) {
+    rb_iseq_t *iseq = cfp->iseq;
+
+    line_no = rb_vm_get_sourceline(cfp);
+    file = iseq->filename;
+    if ((*iter)(arg, file, line_no, iseq->name)) break;
+      }
+  }
+  else if (RUBYVM_CFUNC_FRAME_P(cfp)) {
+      ID id;
+      extern VALUE ruby_engine_name;
+
+      if (NIL_P(file)) file = ruby_engine_name;
+      if (cfp->me->def)
+    id = cfp->me->def->original_id;
+      else
+    id = cfp->me->called_id;
+      if (id != ID_ALLOCATOR && (*iter)(arg, file, line_no, rb_id2str(id)))
+    break;
+  }
+  cfp = RUBY_VM_NEXT_CONTROL_FRAME(cfp);
+    }
+    return TRUE;
+}
+
 static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx){
    if(th->stack){
     VALUE *p = th->stack;
@@ -1492,6 +1560,11 @@ static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx){
     }
     yajl_gen_array_close(ctx->yajl);
   }
+
+  yg_cstring("backtrace");
+  yg_array();
+  vm_backtrace_each(th, -1, NULL, dump_backtrace, ctx);
+  yg_array_end();
 
   //TODO: mark other...
   ygh_id("first_proc", th->first_proc);
