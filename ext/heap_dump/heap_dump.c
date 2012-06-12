@@ -903,7 +903,27 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
   //RVALUE etc. has file/line info in this case
   #endif
 
-  switch(BUILTIN_TYPE(obj)){ // no need to call TYPE(), as value is on heap
+  yg_cstring("class");
+  yg_id(rb_class_of(obj));
+
+  //ivars for !(obj|class|module):
+  // if (FL_TEST(obj, FL_EXIVAR) || rb_special_const_p(obj))
+  // return generic_ivar_get(obj, id, warn);
+
+  const int bt_type = BUILTIN_TYPE(obj);
+
+  // for generic types ivars are held separately in a table
+  if(bt_type != T_OBJECT && bt_type != T_CLASS && bt_type != T_MODULE && bt_type != T_ICLASS){
+    st_table* generic_tbl = rb_generic_ivar_table(obj);
+    if(generic_tbl){
+      yg_cstring("generic_ivars");
+      yg_map();
+      st_foreach(generic_tbl, dump_iv_entry, (st_data_t)ctx);
+      yg_map_end();
+    }
+  }
+
+  switch(bt_type){ // no need to call TYPE(), as value is on heap
     case T_NODE:
       dump_node(RNODE(obj), ctx);
       break;
@@ -947,8 +967,10 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
       break;
 
     case T_OBJECT:
-      yg_cstring("class");
-      yg_id(rb_class_of(obj));
+      //yg_cstring("class");
+      //yg_id(rb_class_of(obj));
+
+
       // yg_cstring("refs"); //ivars
       // yajl_gen_array_open(ctx->yajl);
       // {

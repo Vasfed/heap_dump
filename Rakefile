@@ -17,8 +17,22 @@ task :test => :compile do
     aaa
   end
 
+  class Fiber
+    def [](key)
+      local_fiber_variables[key]
+    end
+    def []=(key,value)
+      local_fiber_variables[key] = value
+    end
+    private
+    def local_fiber_variables
+      @local_fiber_variables ||= {}
+    end
+  end
+  require 'fiber'
   Fiber.new{
       fiber_var = :some_fiber_var
+      Fiber.current[:some_fiber_ivar] = :ivar_cool_value
       some_meth
       Fiber.yield e
       fiber_var = :some_fiber_var3
