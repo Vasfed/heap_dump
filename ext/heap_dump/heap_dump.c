@@ -515,8 +515,13 @@ static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   ygh_id("klass", iseq->klass);
   ygh_id("cref_stack", (VALUE)iseq->cref_stack); //NODE*
 
-  //TODO: resolve id into str?
-  ygh_int("defined_method_id", iseq->defined_method_id);
+  ID id = iseq->defined_method_id;
+  yg_cstring("defined_method_id");
+  if(id && id != ID_ALLOCATOR){
+    yg_cstring(rb_id2name(id)); // symbol=ID2SYM(id);
+  } else {
+    yg_int(id);
+  }
 
   if (iseq->compile_data != 0) {
     struct iseq_compile_data *const compile_data = iseq->compile_data;
