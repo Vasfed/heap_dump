@@ -725,8 +725,8 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     int i = 0;
     yg_cstring("env");
     yajl_gen_array_open(ctx->yajl);
-    for(; i < env->env_size; i++)
-      yg_id(env->env[i]);
+    //for(; i < env->env_size; i++) yg_id(env->env[i]);
+    dump_locations(env->env, env->env_size, ctx);
     yajl_gen_array_close(ctx->yajl);
 
     ygh_int("local_size", env->local_size);
@@ -736,6 +736,51 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     yajl_gen_map_open(ctx->yajl);
     dump_block(&env->block, ctx);
     yajl_gen_map_close(ctx->yajl);
+    return;
+  }
+
+    //FIXME: autogen this:
+    struct enumerator {
+        VALUE obj;
+        ID    meth;
+        VALUE args;
+        VALUE fib;
+        VALUE dst;
+        VALUE lookahead;
+        VALUE feedvalue;
+        VALUE stop_exc;
+    };
+
+    struct generator {
+      VALUE proc;
+    };
+
+    struct yielder {
+      VALUE proc;
+    };
+// end of fixme
+
+  if(!strcmp("enumerator", typename)){
+    struct enumerator *ptr = RTYPEDDATA_DATA(obj);
+    ygh_id("obj", ptr->obj);
+    ygh_id("args", ptr->args);
+    ygh_id("fib", ptr->fib);
+    ygh_id("dst", ptr->dst);
+    ygh_id("lookahead", ptr->lookahead);
+    ygh_id("feedvalue", ptr->feedvalue);
+    ygh_id("stop_exc", ptr->stop_exc);
+    return;
+  }
+
+  if(!strcmp("generator", typename)){
+    struct generator *ptr = RTYPEDDATA_DATA(obj);
+    ygh_id("proc", ptr->proc);
+    return;
+  }
+
+  if(!strcmp("yielder", typename)){
+    struct yielder *ptr = RTYPEDDATA_DATA(obj);
+    ygh_id("proc", ptr->proc);
     return;
   }
 

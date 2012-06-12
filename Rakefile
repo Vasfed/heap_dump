@@ -12,6 +12,7 @@ task :test => :compile do
 
   def some_meth
     fiber_var = :some_fiber_var2
+    e = [1,2,3].each # makes enumerator, which references fiber
     Fiber.yield
     aaa
   end
@@ -19,7 +20,7 @@ task :test => :compile do
   Fiber.new{
       fiber_var = :some_fiber_var
       some_meth
-      Fiber.yield
+      Fiber.yield e
       fiber_var = :some_fiber_var3
     }.resume
   puts "Dumping..."
