@@ -4,9 +4,9 @@ require File.expand_path('../lib/heap_dump/version', __FILE__)
 Gem::Specification.new do |gem|
   gem.authors       = ["Vasily Fedoseyev"]
   gem.email         = ["vasilyfedoseyev@gmail.com"]
-  gem.description   = %q{dump ruby 1.9 heap contents}
-  gem.summary       = %q{dump heap to track reference leaks etc}
-  gem.homepage      = ""
+  gem.description   = %q{Ruby 1.9 heap contents dumper}
+  gem.summary       = %q{Allows to dump heap to track reference leaks, including leaks in proc contexts and fibers}
+  gem.homepage      = "https://github.com/Vasfed/heap_dump"
 
   gem.executables   = `git ls-files -- bin/*`.split("\n").map{ |f| File.basename(f) }
   gem.files         = `git ls-files`.split("\n")
