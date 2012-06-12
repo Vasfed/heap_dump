@@ -622,102 +622,19 @@ static void yg_fiber_type(enum context_type status, walk_ctx_t* ctx){
   }
 }
 
-
-static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx){
-   if(th->stack){
-    VALUE *p = th->stack;
-    VALUE *sp = th->cfp->sp;
-    rb_control_frame_t *cfp = th->cfp;
-    rb_control_frame_t *limit_cfp = (void *)(th->stack + th->stack_size);
-
-    yg_cstring("stack");
-    yajl_gen_array_open(ctx->yajl);
-    while (p < sp) yg_id(*p++);
-    yajl_gen_array_close(ctx->yajl);
-
-    yg_cstring("cfp");
-    yajl_gen_array_open(ctx->yajl);
-    while (cfp != limit_cfp) {
-      yajl_gen_map_open(ctx->yajl);
-      rb_iseq_t *iseq = cfp->iseq;
-      ygh_id("proc", cfp->proc);
-      ygh_id("self", cfp->self);
-      if (iseq) {
-          ygh_id("iseq", RUBY_VM_NORMAL_ISEQ_P(iseq) ? iseq->self : (VALUE)iseq);
-          int line_no = rb_vm_get_sourceline(cfp);
-          ygh_rstring("file", iseq->filename);
-          ygh_int("line_no",line_no);
-      }
-      if (cfp->me){
-        const rb_method_entry_t *me = cfp->me;
-        //((rb_method_entry_t *)cfp->me)->mark = 1;
-        yg_cstring("me");
-        yajl_gen_map_open(ctx->yajl);
-        //
-        //rb_method_flag_t flag;
-     //   char mark;
-        //rb_method_definition_t *def;
-        ygh_id("klass", me->klass);
-        ID id = me->called_id;
-
-        if(me->def){
-          id = me->def->original_id;
-          yg_cstring("def");
-          dump_method_definition_as_value(me->def, ctx);
-        }
-        if(id != ID_ALLOCATOR)
-          ygh_rstring("meth_id", rb_id2str(id));
-        yajl_gen_map_close(ctx->yajl);
-      }
-      cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp);
-      yajl_gen_map_close(ctx->yajl);
+static void dump_locations(VALUE* p, int n, walk_ctx_t *ctx){
+  if(n > 0){
+    VALUE* x = p;
+    while(n--){
+      VALUE v = *x;
+      if(is_pointer_to_heap(v, NULL)) //TODO: sometimes thread is known, may get its th->vm->objspace (in case there's a few)
+        yg_id(v);
+      x++;
     }
-    yajl_gen_array_close(ctx->yajl);
   }
-
-  //TODO: mark other...
-  ygh_id("first_proc", th->first_proc);
-  if (th->first_proc) ygh_id("first_proc", th->first_args);
-
-  ygh_id("thgroup", th->thgroup);
-  ygh_id("value", th->value);
-  ygh_id("errinfo", th->errinfo);
-  ygh_id("thrown_errinfo", th->thrown_errinfo);
-  ygh_id("local_svar", th->local_svar);
-  ygh_id("top_self", th->top_self);
-  ygh_id("top_wrapper", th->top_wrapper);
-  ygh_id("fiber", th->fiber);
-  ygh_id("root_fiber", th->root_fiber);
-  ygh_id("stat_insn_usage", th->stat_insn_usage);
-  ygh_id("last_status", th->last_status);
-  ygh_id("locking_mutex", th->locking_mutex);
-
-    // rb_mark_tbl(th->local_storage);
-
-    // if (GET_THREAD() != th && th->machine_stack_start && th->machine_stack_end) {
-    //     rb_gc_mark_machine_stack(th);
-    //     rb_gc_mark_locations((VALUE *)&th->machine_regs,
-    //        (VALUE *)(&th->machine_regs) +
-    //        sizeof(th->machine_regs) / sizeof(VALUE));
-    // }
-
-  yg_cstring("local_storage");
-  yajl_gen_array_open(ctx->yajl);
-  if(th->local_storage){
-    st_foreach(th->local_storage, dump_iv_entry, ctx); //?
-  }
-  yajl_gen_array_close(ctx->yajl);
-
-    // mark_event_hooks(th->event_hooks);
-  rb_event_hook_t *hook = th->event_hooks;
-  yg_cstring("event_hooks");
-  yajl_gen_array_open(ctx->yajl);
-  while(hook){
-    yg_id(hook->data);
-    hook = hook->next;
-  }
-  yajl_gen_array_close(ctx->yajl);
 }
+
+static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx);
 
 
 
@@ -1473,6 +1390,113 @@ is_pointer_to_heap(void *ptr, void* osp)
       }
     //printf("not found");
     return FALSE;
+}
+
+static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx){
+   if(th->stack){
+    VALUE *p = th->stack;
+    VALUE *sp = th->cfp->sp;
+    rb_control_frame_t *cfp = th->cfp;
+    rb_control_frame_t *limit_cfp = (void *)(th->stack + th->stack_size);
+
+    yg_cstring("stack");
+    yajl_gen_array_open(ctx->yajl);
+    while (p < sp) yg_id(*p++);
+    yajl_gen_array_close(ctx->yajl);
+    yg_cstring("stack_locations");
+    yg_array();
+    dump_locations(p, th->mark_stack_len, ctx);
+    yg_array_end();
+
+    yg_cstring("cfp");
+    yajl_gen_array_open(ctx->yajl);
+    while (cfp != limit_cfp) {
+      yajl_gen_map_open(ctx->yajl);
+      rb_iseq_t *iseq = cfp->iseq;
+      ygh_id("proc", cfp->proc);
+      ygh_id("self", cfp->self);
+      if (iseq) {
+          ygh_id("iseq", RUBY_VM_NORMAL_ISEQ_P(iseq) ? iseq->self : (VALUE)iseq);
+          int line_no = rb_vm_get_sourceline(cfp);
+          ygh_rstring("file", iseq->filename);
+          ygh_int("line_no",line_no);
+      }
+      if (cfp->me){
+        const rb_method_entry_t *me = cfp->me;
+        //((rb_method_entry_t *)cfp->me)->mark = 1;
+        yg_cstring("me");
+        yajl_gen_map_open(ctx->yajl);
+        //
+        //rb_method_flag_t flag;
+     //   char mark;
+        //rb_method_definition_t *def;
+        ygh_id("klass", me->klass);
+        ID id = me->called_id;
+
+        if(me->def){
+          id = me->def->original_id;
+          yg_cstring("def");
+          dump_method_definition_as_value(me->def, ctx);
+        }
+        if(id != ID_ALLOCATOR)
+          ygh_rstring("meth_id", rb_id2str(id));
+        yajl_gen_map_close(ctx->yajl);
+      }
+      cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp);
+      yajl_gen_map_close(ctx->yajl);
+    }
+    yajl_gen_array_close(ctx->yajl);
+  }
+
+  //TODO: mark other...
+  ygh_id("first_proc", th->first_proc);
+  if (th->first_proc) ygh_id("first_proc", th->first_args);
+
+  ygh_id("thgroup", th->thgroup);
+  ygh_id("value", th->value);
+  ygh_id("errinfo", th->errinfo);
+  ygh_id("thrown_errinfo", th->thrown_errinfo);
+  ygh_id("local_svar", th->local_svar);
+  ygh_id("top_self", th->top_self);
+  ygh_id("top_wrapper", th->top_wrapper);
+  ygh_id("fiber", th->fiber);
+  ygh_id("root_fiber", th->root_fiber);
+  ygh_id("stat_insn_usage", th->stat_insn_usage);
+  ygh_id("last_status", th->last_status);
+  ygh_id("locking_mutex", th->locking_mutex);
+
+  if (GET_THREAD() != th && th->machine_stack_start && th->machine_stack_end) {
+      // rb_gc_mark_machine_stack(th);
+      VALUE *stack_start, *stack_end;
+      GET_STACK_BOUNDS(stack_start, stack_end, 0);
+      // /sizeof(VALUE)?
+      yg_cstring("mach_stack");
+      yg_array();
+      dump_locations(stack_start, (stack_end-stack_start), ctx);
+      yg_array_end();
+
+      yg_cstring("mach_regs");
+      yg_array();
+      dump_locations((VALUE *)&th->machine_regs, sizeof(th->machine_regs) / sizeof(VALUE), ctx);
+      yg_array_end();
+  }
+
+  yg_cstring("local_storage");
+  yajl_gen_array_open(ctx->yajl);
+  if(th->local_storage){
+    st_foreach(th->local_storage, dump_iv_entry, ctx); //?
+  }
+  yajl_gen_array_close(ctx->yajl);
+
+    // mark_event_hooks(th->event_hooks);
+  rb_event_hook_t *hook = th->event_hooks;
+  yg_cstring("event_hooks");
+  yajl_gen_array_open(ctx->yajl);
+  while(hook){
+    yg_id(hook->data);
+    hook = hook->next;
+  }
+  yajl_gen_array_close(ctx->yajl);
 }
 
 

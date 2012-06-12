@@ -9,6 +9,19 @@ desc "Simple dump test,just to check if extension compiles and does not segfault
 task :test => :compile do
   require "bundler/setup"
   require 'heap_dump'
+
+  def some_meth
+    fiber_var = :some_fiber_var2
+    Fiber.yield
+    aaa
+  end
+
+  Fiber.new{
+      fiber_var = :some_fiber_var
+      some_meth
+      Fiber.yield
+      fiber_var = :some_fiber_var3
+    }.resume
   puts "Dumping..."
   HeapDump.dump
 end
