@@ -839,13 +839,12 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
   if(!strcmp("fiber", typename)){
     rb_fiber_t *fib = RTYPEDDATA_DATA(obj);
     ygh_id("prev", fib->prev);
-    //ygh_int("cont", fib->cont);
     yg_cstring("status");
     yg_fiber_status(fib->status, ctx);
 
     yg_cstring("cont");
     yg_map();
-      //ygh_int("type", fib->cont.type);
+      // actually this is embedded continuation object, these may be standalone datas in the wild
       yg_cstring("type");
       yg_fiber_type(fib->cont.type, ctx);
 
@@ -854,20 +853,22 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
       yg_cstring("saved_thread");
       yg_map();
-      //rb_thread_mark(&fib->cont.saved_thread);
       dump_thread(&fib->cont.saved_thread, ctx);
       yg_map_end();
 
       //stacks:
-      yg_cstring("stack");
-      yg_array();
       if(fib->cont.vm_stack) {
+        yg_cstring("vm_stack");
+        yg_array();
         dump_locations(fib->cont.vm_stack, fib->cont.vm_stack_slen + fib->cont.vm_stack_clen, ctx);
+        yg_array_end();
       }
       if (fib->cont.machine_stack) {
+        yg_cstring("mach_stack");
+        yg_array();
         dump_locations(fib->cont.machine_stack, fib->cont.machine_stack_size, ctx);
+        yg_array_end();
       }
-      yg_array_end();
     yg_map_end();
     return;
   }
