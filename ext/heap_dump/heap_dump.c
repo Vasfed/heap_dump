@@ -866,6 +866,19 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     return;
   }
 
+  if(!strcmp("time", typename)){
+    // struct time_object *tobj = RTYPEDDATA_DATA(obj);
+    // if (!tobj) return;
+    // if (!FIXWV_P(tobj->timew))
+    //     rb_gc_mark(w2v(tobj->timew));
+    // rb_gc_mark(tobj->vtm.year);
+    // rb_gc_mark(tobj->vtm.subsecx);
+    // rb_gc_mark(tobj->vtm.utc_offset);
+    VALUE flt = rb_funcall(obj, rb_intern("to_f"), 0);
+    if(BUILTIN_TYPE(flt) == T_FLOAT){ ygh_double("val", RFLOAT_VALUE(flt)); }
+    return;
+  }
+
   //FIXME: autogen this from ruby (this copied from 1.9.2p290)
   struct thgroup {
     int enclosed;
@@ -1717,6 +1730,20 @@ static int dump_iv_entry1(ID key, rb_const_entry_t* ce/*st_data_t val*/, walk_ct
   return ST_CONTINUE;
 }
 
+// static void try_dump_generic_ivars(walk_ctx_t* ctx){
+//   //very nasty hack:
+//   #if defined(__x86_64__) && defined(__GNUC__) && !defined(__native_client__)
+//   printf("Trying generic ivars\n");
+//   //TODO: config to turn this off in case this will not work
+
+//   VALUE stack_end1, stack_end2;
+//   rb_gc_set_stack_end(&stack_end1);
+//   st_table* tbl = rb_generic_ivar_table();
+//   rb_gc_set_stack_end(&stack_end2);
+
+//   #endif
+// }
+
 
 //public symbol, can be used from GDB
 void heapdump_dump(const char* filename){
@@ -1757,6 +1784,8 @@ void heapdump_dump(const char* filename){
   else printf("no classes\n");
   yajl_gen_array_close(ctx->yajl);
   flush_yajl(ctx);
+
+  //try_dump_generic_ivars();
 
   //TODO: other gc entry points - symbols, encodings, etc.
 
