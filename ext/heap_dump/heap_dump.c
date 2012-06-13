@@ -642,6 +642,19 @@ static void dump_locations(VALUE* p, int n, walk_ctx_t *ctx){
 static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx);
 
 
+vm_dump_each_thread_func(st_data_t key, VALUE obj, walk_ctx_t *ctx){
+  //here stored 'self' from thread
+  // yg_map();
+  ygh_id("id", obj);
+  // const rb_thread_t *th = obj; //RTYPEDDATA_DATA(obj);
+
+  //or direct pointer?
+  // dump_thread(th, ctx);
+  //yg_id(obj);
+  // yg_map_end();
+  return ST_CONTINUE;
+}
+
 
 static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
@@ -801,9 +814,12 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     ygh_id("coverages", vm->coverages);
 
     //TODO:
-    // if (vm->living_threads) {
-    //       st_foreach(vm->living_threads, vm_mark_each_thread_func, 0);
-    //   }
+    if (vm->living_threads) {
+      yg_cstring("threads");
+      yg_array();
+      st_foreach(vm->living_threads, vm_dump_each_thread_func, ctx);
+      yg_array_end();
+      }
     //   rb_gc_mark_locations(vm->special_exceptions, vm->special_exceptions + ruby_special_error_count);
 
     //   if (vm->loading_table) {
@@ -843,18 +859,14 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
       yg_map_end();
 
       //stacks:
-      VALUE *vm_stack = fib->cont.vm_stack;
-      int i = 0;
-      for(; vm_stack && i < fib->cont.vm_stack_slen + fib->cont.vm_stack_clen; i++){
-        yg_id(*(vm_stack++));
-      }
-      vm_stack = fib->cont.vm_stack;
-      for(i = 0;vm_stack && i<fib->cont.machine_stack_size; i++){
-        yg_id(*(vm_stack++));
-      }
       yg_cstring("stack");
       yg_array();
-
+      if(fib->cont.vm_stack) {
+        dump_locations(fib->cont.vm_stack, fib->cont.vm_stack_slen + fib->cont.vm_stack_clen, ctx);
+      }
+      if (fib->cont.machine_stack) {
+        dump_locations(fib->cont.machine_stack, fib->cont.machine_stack_size, ctx);
+      }
       yg_array_end();
     yg_map_end();
     return;
