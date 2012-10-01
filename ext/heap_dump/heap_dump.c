@@ -400,7 +400,7 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
       //FIXME: check pointers!
 
       {
-      printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", node_type_name(obj), (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
+      printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", nd_type(obj), node_type_name(obj), (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
       }
 
       // if (is_pointer_to_heap(objspace, obj->as.node.u1.node)) { gc_mark(objspace, (VALUE)obj->as.node.u1.node, lev); }
@@ -569,17 +569,18 @@ static void dump_block(const rb_block_t* block, walk_ctx_t *ctx){
       yg_cstring("iseq");
       yajl_gen_map_open(ctx->yajl);
       //FIXME: id may be different (due to RBasic fields)!!!
-      ygh_id("id", block->iseq);
+      ygh_id("id", (VALUE)block->iseq);
       dump_iseq(block->iseq, ctx);
       yajl_gen_map_close(ctx->yajl);
     } else {
-      ygh_id("iseq", block->iseq);
+      ygh_id("iseq", (VALUE)block->iseq);
     }
 
   ygh_id("self", block->self);
 
-  ygh_id("lfp", block->lfp);
-  ygh_id("dfp", block->dfp);
+  //FIXME: these are pointers to some memory, may be dumped more clever
+  ygh_id("lfp", (VALUE)block->lfp);
+  ygh_id("dfp", (VALUE)block->dfp);
   //lfp = local frame pointer? local_num elems?
   // dfp = ?
 }
@@ -654,19 +655,19 @@ static void yg_fiber_type(enum context_type status, walk_ctx_t* ctx){
   }
 }
 
-static void dump_locations(VALUE* p, int n, walk_ctx_t *ctx){
+static void dump_locations(VALUE* p, long int n, walk_ctx_t *ctx){
   if(n > 0){
     VALUE* x = p;
     while(n--){
       VALUE v = *x;
-      if(is_pointer_to_heap(v, NULL)) //TODO: sometimes thread is known, may get its th->vm->objspace (in case there's a few)
+      if(is_pointer_to_heap((void*)v, NULL)) //TODO: sometimes thread is known, may get its th->vm->objspace (in case there's a few)
         yg_id(v);
       x++;
     }
   }
 }
 
-static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx);
+static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx);
 
 
 vm_dump_each_thread_func(st_data_t key, VALUE obj, walk_ctx_t *ctx){
@@ -722,7 +723,7 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     const st_table *tbl = RTYPEDDATA_DATA(obj);
     yg_cstring("val");
     yajl_gen_map_open(ctx->yajl);
-    st_foreach(tbl, dump_method_entry_i, (st_data_t)ctx);
+    st_foreach((st_table *)tbl, dump_method_entry_i, (st_data_t)ctx); //removing const, but this should not affect hash
     yajl_gen_map_close(ctx->yajl);
     return;
   }
@@ -853,7 +854,7 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     if (vm->living_threads) {
       yg_cstring("threads");
       yg_array();
-      st_foreach(vm->living_threads, vm_dump_each_thread_func, ctx);
+      st_foreach(vm->living_threads, vm_dump_each_thread_func, (st_data_t)ctx);
       yg_array_end();
       }
     //   rb_gc_mark_locations(vm->special_exceptions, vm->special_exceptions + ruby_special_error_count);
@@ -1529,8 +1530,9 @@ is_pointer_to_heap(void *ptr, void* osp)
 
 
 static int
-dump_backtrace(walk_ctx_t *ctx, VALUE file, int line, VALUE method)
+dump_backtrace(void* data, VALUE file, int line, VALUE method)
 {
+    walk_ctx_t *ctx = data;
     yg_map();
     const char *filename = NIL_P(file) ? "<ruby>" : RSTRING_PTR(file);
 
@@ -1551,7 +1553,7 @@ dump_backtrace(walk_ctx_t *ctx, VALUE file, int line, VALUE method)
 //TODO: autogen, this func is just copied from vm.c
 //typedef int rb_backtrace_iter_func(void *, VALUE, int, VALUE);
 static int
-vm_backtrace_each(rb_thread_t *th, int lev, void (*init)(void *), rb_backtrace_iter_func *iter, void *arg)
+vm_backtrace_each(const rb_thread_t *th, int lev, void (*init)(void *), rb_backtrace_iter_func *iter, void *arg)
 {
     const rb_control_frame_t *limit_cfp = th->cfp;
     const rb_control_frame_t *cfp = (void *)(th->stack + th->stack_size);
@@ -1594,7 +1596,7 @@ vm_backtrace_each(rb_thread_t *th, int lev, void (*init)(void *), rb_backtrace_i
     return TRUE;
 }
 
-static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx){
+static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
    if(th->stack){
     VALUE *p = th->stack;
     VALUE *sp = th->cfp->sp;
@@ -1691,7 +1693,7 @@ static void dump_thread(rb_thread_t* th, walk_ctx_t *ctx){
   yg_cstring("local_storage");
   yajl_gen_array_open(ctx->yajl);
   if(th->local_storage){
-    st_foreach(th->local_storage, dump_iv_entry, ctx); //?
+    st_foreach(th->local_storage, dump_iv_entry, (st_data_t)ctx); //?
   }
   yajl_gen_array_close(ctx->yajl);
 
