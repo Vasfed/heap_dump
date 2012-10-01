@@ -3,24 +3,34 @@
 #include <stdio.h>
 
 
-#include "yarv-headers/constant.h"
-#include "yarv-headers/node.h"
-#include "yarv-headers/vm_core.h"
-#include "yarv-headers/atomic.h"
-#include "yarv-headers/iseq.h"
+#ifdef HAVE_CONSTANT_H
+//have this in 1.9.3+, for future compatibility
+#include "constant.h"
+#else
+  //from 1.9.2
+  typedef enum {
+      CONST_PUBLIC    = 0x00,
+      CONST_PRIVATE   = 0x01
+  } rb_const_flag_t;
 
-//#undef RCLASS_IV_TBL
-//#include "yarv-headers/internal.h"
+  typedef struct rb_const_entry_struct {
+      rb_const_flag_t flag;
+      VALUE value;            /* should be mark */
+  } rb_const_entry_t;
+#endif
+
+#include "node.h"
+#include "vm_core.h"
+// #include "atomic.h"
+#include "iseq.h"
+
 #define RCLASS_EXT(c) (RCLASS(c)->ptr)
 
+#define NODE_OP_ASGN2_ARG NODE_LAST + 1
 
-#include "yarv-headers/method.h"
-#include "method/internal_method.h"
+#include "method.h"
 
 #include "ruby_io.h" // need rb_io_t
-
-#include "node/ruby_internal_node.h"
-#include "node/node_type_descrip.c"
 
 #include "api/yajl_gen.h"
 
@@ -671,6 +681,15 @@ vm_dump_each_thread_func(st_data_t key, VALUE obj, walk_ctx_t *ctx){
   // yg_map_end();
   return ST_CONTINUE;
 }
+
+//FIXME: parse this from ruby source!
+struct METHOD {
+  //for 1.9.2 only
+    VALUE recv;
+    VALUE rclass;
+    ID id;
+    rb_method_entry_t me;
+};
 
 
 static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
@@ -1851,11 +1870,7 @@ void Init_heap_dump(){
 
   rb_require("rubygems");
   rb_funcall(rb_mKernel, gem, 1, rb_str_new2("yajl-ruby"));
-  rb_funcall(rb_mKernel, gem, 1, rb_str_new2("ruby-internal")); //TODO: version requirements
-  rb_require("internal/node");
   rb_require("yajl");
-
-  init_node_type_descrips();
 
   rb_mHeapDumpModule = rb_define_module("HeapDump");
   rb_define_singleton_method(rb_mHeapDumpModule, "dump_ext", rb_heapdump_dump, 1);
