@@ -163,6 +163,26 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
   yg_int(NUM2LONG(rb_obj_id(obj)));
 }
 
+const char* node_type_name(const NODE* obj){
+#define N(n) case NODE_##n: return #n;
+  switch(nd_type(obj)){
+    N(ALIAS)
+#ifdef HAVE_NODE_ALLOCA
+    N(ALLOCA)
+#endif
+    N(AND) N(ARGS) N(ARGSCAT) N(ARGSPUSH) N(ARRAY) N(ATTRASGN) N(BACK_REF) N(BEGIN) N(BLOCK) N(BLOCK_ARG) N(BLOCK_PASS) N(BMETHOD) N(BREAK)
+    N(CALL) N(CASE) N(CDECL) N(CLASS) N(COLON2) N(COLON3) N(CONST) N(CVAR) N(CVASGN) N(CVDECL) N(DASGN) N(DASGN_CURR) N(DEFINED) N(DEFN)
+    N(DEFS) N(DOT2) N(DOT3) N(DREGX) N(DREGX_ONCE) N(DSTR) N(DSYM) N(DVAR) N(DXSTR) N(ENSURE) N(EVSTR) N(FALSE) N(FCALL) N(FLIP2) N(FLIP3)
+    N(FOR) N(GASGN) N(GVAR) N(HASH) N(IASGN) N(IF) N(IFUNC) N(ITER) N(IVAR) N(LASGN) N(LIT) N(LVAR) N(MASGN) N(MATCH) N(MATCH2) N(MATCH3)
+    N(MEMO) N(MODULE) N(NEXT) N(NIL) N(NTH_REF) N(OPT_N) N(OP_ASGN1) N(OP_ASGN2) N(OP_ASGN2_ARG) N(OP_ASGN_AND) N(OP_ASGN_OR) N(OR) N(POSTEXE)
+    N(REDO) N(RESBODY) N(RESCUE) N(RETRY) N(RETURN) N(SCLASS) N(SCOPE) N(SELF) N(SPLAT) N(STR) N(SUPER) N(TO_ARY) N(TRUE) N(UNDEF) N(UNTIL)
+    N(VALIAS) N(VCALL) N(WHEN) N(WHILE) N(XSTR) N(YIELD) N(ZARRAY) N(ZSUPER) N(LAST)
+    default:
+      return "unknown";
+  };
+#undef N
+}
+
 
 static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
   switch (nd_type(obj)) {
@@ -369,9 +389,8 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
     default:    /* unlisted NODE */
       //FIXME: check pointers!
 
-      {const Node_Type_Descrip* descrip = node_type_descrips[nd_type(obj)];
-
-      printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", nd_type(obj), descrip ? descrip->name : "unknown", (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
+      {
+      printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", node_type_name(obj), (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
       }
 
       // if (is_pointer_to_heap(objspace, obj->as.node.u1.node)) { gc_mark(objspace, (VALUE)obj->as.node.u1.node, lev); }
@@ -385,10 +404,8 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 }
 
 static inline void dump_node(NODE* obj, walk_ctx_t *ctx){
-  const Node_Type_Descrip* descrip = node_type_descrips[nd_type(obj)]; // node_type_descrip(nd_type(obj)) raises exception on unknown 65, 66 and 92
-
   ygh_int("nd_type", nd_type(obj));
-  ygh_cstring("nd_type_str", descrip ? descrip->name : "unknown");
+  ygh_cstring("nd_type_str", node_type_name(obj));
 
   yg_cstring("refs");
   yajl_gen_array_open(ctx->yajl);
