@@ -1,7 +1,9 @@
 # HeapDump
 
 Low-level ruby heap memory dump - including data and code references.
-Written across ruby 1.9.2-p290 data structures. Other rubies support may come later (or may not).
+Originally written across ruby 1.9.2-p290 data structures.
+
+Does work on other 1.9.2s and 1.9.3, but not well-tested yet(output is not proven to be as full etc.).
 
 Currently is under development and output format may differ.
 
