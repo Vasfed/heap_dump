@@ -4,19 +4,10 @@
 
 
 #ifdef HAVE_CONSTANT_H
-//have this in 1.9.3+, for future compatibility
+//have this in 1.9.3
 #include "constant.h"
 #else
-  //from 1.9.2
-  typedef enum {
-      CONST_PUBLIC    = 0x00,
-      CONST_PRIVATE   = 0x01
-  } rb_const_flag_t;
-
-  typedef struct rb_const_entry_struct {
-      rb_const_flag_t flag;
-      VALUE value;            /* should be mark */
-  } rb_const_entry_t;
+#include "internal_constant.h"
 #endif
 
 #include "node.h"
@@ -24,9 +15,24 @@
 // #include "atomic.h"
 #include "iseq.h"
 
+#ifdef HAVE_INTERNAL_H
+#include "internal.h"
+#else
 #define RCLASS_EXT(c) (RCLASS(c)->ptr)
+#endif
 
 #define NODE_OP_ASGN2_ARG NODE_LAST + 1
+
+#ifndef FALSE
+# define FALSE 0
+#elif FALSE
+# error FALSE must be false
+#endif
+#ifndef TRUE
+# define TRUE 1
+#elif !TRUE
+# error TRUE must be true
+#endif
 
 #include "method.h"
 
@@ -39,6 +45,17 @@
 #endif
 
 // simple test - rake compile && bundle exec ruby -e 'require "heap_dump"; HeapDump.dump'
+
+
+#ifdef HAVE_GC_INTERNAL_H
+#include "gc_internal.h"
+#else
+  #error No internal gc header for your ruby
+  //TODO: just do not dump something?
+#endif
+
+
+
 
 static VALUE rb_mHeapDumpModule;
 
@@ -86,7 +103,7 @@ static void flush_yajl(walk_ctx_t *ctx){
   }
 }
 
-static inline int is_pointer_to_heap(void *ptr, void* osp);
+static inline int is_in_heap(void *ptr, void* osp);
 
 static inline const char* rb_builtin_type(VALUE obj){
   switch(BUILTIN_TYPE(obj)){
@@ -351,7 +368,7 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
         unsigned long n = obj->u3.cnt;
         while (n--) {
           //v = *x;
-         // if (is_pointer_to_heap(objspace, (void *)v)) {
+         // if (is_in_heap((void *)v), objspace) {
              // //gc_mark(objspace, v, 0);
             yg_id(*x);
          // }
@@ -383,12 +400,12 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
     //iteration func - blocks,procs,lambdas etc:
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
       //printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
-      if(is_pointer_to_heap(obj->u2.node, 0)){
+      if(is_in_heap(obj->u2.node, 0)){
         //printf("in heap: %p\n", obj->u2.node);
         //TODO: do we need to dump it inline?
         yg_id((VALUE)obj->u2.node);
       }
-      if(is_pointer_to_heap( (void*)obj->nd_aid, 0)){
+      if(is_in_heap( (void*)obj->nd_aid, 0)){
         //printf("in heap: %p\n", (void*)obj->nd_aid);
         yg_id(obj->nd_aid);
       }
@@ -403,9 +420,9 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
       printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", nd_type(obj), node_type_name(obj), (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
       }
 
-      // if (is_pointer_to_heap(objspace, obj->as.node.u1.node)) { gc_mark(objspace, (VALUE)obj->as.node.u1.node, lev); }
-      // if (is_pointer_to_heap(objspace, obj->as.node.u2.node)) { gc_mark(objspace, (VALUE)obj->as.node.u2.node, lev); }
-      // if (is_pointer_to_heap(objspace, obj->as.node.u3.node)) { gc_mark(objspace, (VALUE)obj->as.node.u3.node, lev); }
+      // if (is_in_heap(obj->as.node.u1.node, objspace)) { gc_mark(objspace, (VALUE)obj->as.node.u1.node, lev); }
+      // if (is_in_heap(obj->as.node.u2.node, objspace)) { gc_mark(objspace, (VALUE)obj->as.node.u2.node, lev); }
+      // if (is_in_heap(obj->as.node.u3.node, objspace)) { gc_mark(objspace, (VALUE)obj->as.node.u3.node, lev); }
 
       //yg_id((VALUE)obj->u1.node);
       //yg_id((VALUE)obj->u2.node);
@@ -586,56 +603,8 @@ static void dump_block(const rb_block_t* block, walk_ctx_t *ctx){
 }
 
 
-#define CAPTURE_JUST_VALID_VM_STACK 1
-
-enum context_type {
-    CONTINUATION_CONTEXT = 0,
-    FIBER_CONTEXT = 1,
-    ROOT_FIBER_CONTEXT = 2
-};
-
-typedef struct rb_context_struct {
-    enum context_type type;
-    VALUE self;
-    int argc;
-    VALUE value;
-    VALUE *vm_stack;
-#ifdef CAPTURE_JUST_VALID_VM_STACK
-    size_t vm_stack_slen;  /* length of stack (head of th->stack) */
-    size_t vm_stack_clen;  /* length of control frames (tail of th->stack) */
-#endif
-    VALUE *machine_stack;
-    VALUE *machine_stack_src;
-#ifdef __ia64
-    VALUE *machine_register_stack;
-    VALUE *machine_register_stack_src;
-    int machine_register_stack_size;
-#endif
-    rb_thread_t saved_thread;
-    rb_jmpbuf_t jmpbuf;
-    size_t machine_stack_size;
-} rb_context_t;
-
-
-
-enum fiber_status {
-    CREATED,
-    RUNNING,
-    TERMINATED
-};
-
-///TODO: move this out
-typedef struct rb_fiber_struct {
-    rb_context_t cont;
-    VALUE prev;
-    enum fiber_status status;
-    struct rb_fiber_struct *prev_fiber;
-    struct rb_fiber_struct *next_fiber;
-} rb_fiber_t;
-
-
-
-
+#include "fiber.h"
+#include "internal_typed_data.h"
 
 
 
@@ -660,7 +629,7 @@ static void dump_locations(VALUE* p, long int n, walk_ctx_t *ctx){
     VALUE* x = p;
     while(n--){
       VALUE v = *x;
-      if(is_pointer_to_heap((void*)v, NULL)) //TODO: sometimes thread is known, may get its th->vm->objspace (in case there's a few)
+      if(is_in_heap((void*)v, NULL)) //TODO: sometimes thread is known, may get its th->vm->objspace (in case there's a few)
         yg_id(v);
       x++;
     }
@@ -682,15 +651,6 @@ vm_dump_each_thread_func(st_data_t key, VALUE obj, walk_ctx_t *ctx){
   // yg_map_end();
   return ST_CONTINUE;
 }
-
-//FIXME: parse this from ruby source!
-struct METHOD {
-  //for 1.9.2 only
-    VALUE recv;
-    VALUE rclass;
-    ID id;
-    rb_method_entry_t me;
-};
 
 
 static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
@@ -793,27 +753,6 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     yajl_gen_map_close(ctx->yajl);
     return;
   }
-
-    //FIXME: autogen this:
-    struct enumerator {
-        VALUE obj;
-        ID    meth;
-        VALUE args;
-        VALUE fib;
-        VALUE dst;
-        VALUE lookahead;
-        VALUE feedvalue;
-        VALUE stop_exc;
-    };
-
-    struct generator {
-      VALUE proc;
-    };
-
-    struct yielder {
-      VALUE proc;
-    };
-// end of fixme
 
   if(!strcmp("enumerator", typename)){
     struct enumerator *ptr = RTYPEDDATA_DATA(obj);
@@ -928,12 +867,6 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     if(BUILTIN_TYPE(flt) == T_FLOAT){ ygh_double("val", RFLOAT_VALUE(flt)); }
     return;
   }
-
-  //FIXME: autogen this from ruby (this copied from 1.9.2p290)
-  struct thgroup {
-    int enclosed;
-    VALUE group;
-  };
 
   if(!strcmp("thgroup", typename)){
     const struct thgroup* gr = RTYPEDDATA_DATA(obj);
@@ -1150,10 +1083,11 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
     case T_DATA: // data of extensions + raw bytecode etc., refs undumpable? maybe in some way mess with mark callback? (need to intercept rb_gc_mark :( )
       if(RTYPEDDATA_P(obj)){
         ygh_cstring("type_name", RTYPEDDATA_TYPE(obj)->wrap_struct_name);
-        if(RTYPEDDATA_TYPE(obj)->dsize){
-          ygh_int("size", RTYPEDDATA_TYPE(obj)->dsize(RTYPEDDATA_DATA(obj)));
-        }
-
+#if HAVE_RB_DATA_TYPE_T_FUNCTION
+        if(RTYPEDDATA_TYPE(obj)->function.dsize) ygh_int("size", RTYPEDDATA_TYPE(obj)->function.dsize(RTYPEDDATA_DATA(obj)));
+#else
+        if(RTYPEDDATA_TYPE(obj)->dsize) ygh_int("size", RTYPEDDATA_TYPE(obj)->dsize(RTYPEDDATA_DATA(obj)));
+#endif
         dump_data_if_known(obj, ctx);
       }
       break;
@@ -1259,272 +1193,13 @@ extern st_table *rb_class_tbl;
 
 
 /////////////
-#define MARK_STACK_MAX 1024
-
-#ifndef CALC_EXACT_MALLOC_SIZE
-#define CALC_EXACT_MALLOC_SIZE 0
-#endif
-#include "ruby/re.h"
-
-#ifndef FALSE
-# define FALSE 0
-#elif FALSE
-# error FALSE must be false
-#endif
-#ifndef TRUE
-# define TRUE 1
-#elif !TRUE
-# error TRUE must be true
-#endif
-
-//FIXME: this should be autoextracted from ruby
-// see how this is done in ruby-internal gem
-typedef struct RVALUE {
-    union {
-  struct {
-      VALUE flags;    /* always 0 for freed obj */
-      struct RVALUE *next;
-  } free;
-  struct RBasic  basic;
-  struct RObject object;
-  struct RClass  klass;
-  struct RFloat  flonum;
-  struct RString string;
-  struct RArray  array;
-  struct RRegexp regexp;
-  struct RHash   hash;
-  struct RData   data;
-  struct RTypedData   typeddata;
-  struct RStruct rstruct;
-  struct RBignum bignum;
-  struct RFile   file;
-  struct RNode   node;
-  struct RMatch  match;
-  struct RRational rational;
-  struct RComplex complex;
-    } as;
-#ifdef GC_DEBUG
-    const char *file;
-    int   line;
-#endif
-} RVALUE;
-
-typedef struct gc_profile_record {
-    double gc_time;
-    double gc_mark_time;
-    double gc_sweep_time;
-    double gc_invoke_time;
-
-    size_t heap_use_slots;
-    size_t heap_live_objects;
-    size_t heap_free_objects;
-    size_t heap_total_objects;
-    size_t heap_use_size;
-    size_t heap_total_size;
-
-    int have_finalize;
-    int is_marked;
-
-    size_t allocate_increase;
-    size_t allocate_limit;
-} gc_profile_record;
-
-struct heaps_slot {
-    void *membase;
-    RVALUE *slot;
-    size_t limit;
-    uintptr_t *bits;
-    RVALUE *freelist;
-    struct heaps_slot *next;
-    struct heaps_slot *prev;
-    struct heaps_slot *free_next;
-};
-
-struct heaps_header {
-    struct heaps_slot *base;
-    uintptr_t *bits;
-};
-
-struct sorted_heaps_slot {
-    RVALUE *start;
-    RVALUE *end;
-    struct heaps_slot *slot;
-};
-
-struct heaps_free_bitmap {
-    struct heaps_free_bitmap *next;
-};
-
-struct gc_list {
-    VALUE *varptr;
-    struct gc_list *next;
-};
 
 
-// typedef struct rb_objspace {
-//   struct {
-//     size_t limit;
-//     size_t increase;
-// //FIXME: this should match ruby settings
-// //#if CALC_EXACT_MALLOC_SIZE
-//     size_t allocated_size;
-//     size_t allocations;
-// //#endif
-//   } malloc_params;
-
-//   struct {
-//       size_t increment;
-//       struct heaps_slot *ptr;
-//       struct heaps_slot *sweep_slots;
-//       struct heaps_slot *free_slots;
-//       struct sorted_heaps_slot *sorted;
-//       size_t length;
-//       size_t used;
-//       struct heaps_free_bitmap *free_bitmap;
-//       RVALUE *range[2];
-//       RVALUE *freed;
-//       size_t live_num;
-//       size_t free_num;
-//       size_t free_min;
-//       size_t final_num;
-//       size_t do_heap_free;
-//   } heap;
-
-//   struct {
-//     int dont_gc;
-//     int dont_lazy_sweep;
-//     int during_gc;
-//     rb_atomic_t finalizing;
-//   } flags;
-
-//   struct {
-//     st_table *table;
-//     RVALUE *deferred;
-//   } final;
-
-//   struct {
-//     VALUE buffer[MARK_STACK_MAX];
-//     VALUE *ptr;
-//     int overflow;
-//   } markstack;
-
-//   struct {
-//     int run;
-//     gc_profile_record *record;
-//     size_t count;
-//     size_t size;
-//     double invoke_time;
-//   } profile;
-
-//   struct gc_list *global_list;
-//   size_t count;
-//   int gc_stress;
-// } rb_objspace_t;
-
-
-// 1.9.2-p290:
-typedef struct rb_objspace {
-    struct {
-  size_t limit;
-  size_t increase;
-#if CALC_EXACT_MALLOC_SIZE
-  size_t allocated_size;
-  size_t allocations;
-#endif
-    } malloc_params;
-    struct {
-  size_t increment;
-  struct heaps_slot *ptr;
-  size_t length;
-  size_t used;
-  RVALUE *freelist;
-  RVALUE *range[2];
-  RVALUE *freed;
-    } heap;
-    struct {
-  int dont_gc;
-  int during_gc;
-    } flags;
-    struct {
-  st_table *table;
-  RVALUE *deferred;
-    } final;
-    struct {
-  VALUE buffer[MARK_STACK_MAX];
-  VALUE *ptr;
-  int overflow;
-    } markstack;
-    struct {
-  int run;
-  gc_profile_record *record;
-  size_t count;
-  size_t size;
-  double invoke_time;
-    } profile;
-    struct gc_list *global_list;
-    unsigned int count;
-    int gc_stress;
-} rb_objspace_t;
-
-#define malloc_limit    objspace->malloc_params.limit
-#define malloc_increase   objspace->malloc_params.increase
-#define heaps     objspace->heap.ptr
-#define heaps_length    objspace->heap.length
-#define heaps_used    objspace->heap.used
-#define lomem     objspace->heap.range[0]
-#define himem     objspace->heap.range[1]
-#define heaps_inc   objspace->heap.increment
-#define heaps_freed   objspace->heap.freed
-#define dont_gc     objspace->flags.dont_gc
-#define during_gc   objspace->flags.during_gc
-#define finalizing    objspace->flags.finalizing
-#define finalizer_table   objspace->final.table
-#define deferred_final_list objspace->final.deferred
-#define mark_stack    objspace->markstack.buffer
-#define mark_stack_ptr    objspace->markstack.ptr
-#define mark_stack_overflow objspace->markstack.overflow
-#define global_List   objspace->global_list
-
-#define RANY(o) ((RVALUE*)(o))
-
-static inline int
-is_pointer_to_heap(void *ptr, void* osp)
-{
-    rb_objspace_t *objspace = osp;
-    if(!ptr) return false;
-    if(!objspace) objspace = GET_THREAD()->vm->objspace;
-
-    register RVALUE *p = RANY(ptr);
-    //register struct sorted_heaps_slot *heap;
-    register size_t hi, lo, mid;
-
-    if (p < lomem || p > himem) {
-      //printf("not in range %p - %p (objspace %p, l%u used %u)\n", lo, hi, objspace, heaps_length, heaps_used);
-      return FALSE;
-    }
-    //printf("ptr in range\n");
-    if ((VALUE)p % sizeof(RVALUE) != 0) return FALSE;
-    //printf("ptr %p align correct\n", ptr);
-
-  //1.9.2-p290
-  /* check if p looks like a pointer using bsearch*/
-      lo = 0;
-      hi = heaps_used;
-      while (lo < hi) {
-    mid = (lo + hi) / 2;
-    register struct heaps_slot *heap;
-    heap = &heaps[mid];
-    if (heap->slot <= p) {
-        if (p < heap->slot + heap->limit)
-      return TRUE;
-        lo = mid + 1;
-    }
-    else {
-        hi = mid;
-    }
-      }
-    //printf("not found");
-    return FALSE;
+static inline int is_in_heap(void *ptr, void* osp){
+  rb_objspace_t *objspace = osp;
+  if(!ptr) return false;
+  if(!objspace) objspace = GET_THREAD()->vm->objspace;
+  return is_pointer_to_heap(objspace, ptr);
 }
 
 
@@ -1735,7 +1410,7 @@ static void dump_machine_context(walk_ctx_t *ctx){
   //printf("registers\n");
   while (n--) {
     VALUE v = *(x++);
-    if(is_pointer_to_heap((void*)v, NULL))
+    if(is_in_heap((void*)v, NULL))
       yg_id(v);
   }
   yajl_gen_array_close(ctx->yajl);
@@ -1751,7 +1426,7 @@ static void dump_machine_context(walk_ctx_t *ctx){
       VALUE v = *(x++);
       //printf("val: %p\n", (void*)v);
       //FIXME: other objspace (not default one?)
-      if(is_pointer_to_heap((void*)v, NULL)) {
+      if(is_in_heap((void*)v, NULL)) {
         //printf("ON heap\n");
         yg_id(v);
       }
@@ -1773,7 +1448,7 @@ static int dump_iv_entry1(ID key, rb_const_entry_t* ce/*st_data_t val*/, walk_ct
 
   //printf("name %s\n", RSTRING_PTR(rb_class_path(rb_class_real_checked(value))));
 
-  //if(is_pointer_to_heap(value, NULL)){
+  //if(is_in_heap(value, NULL)){
     //printf("on heap\n");
     yg_id(value);
   //}

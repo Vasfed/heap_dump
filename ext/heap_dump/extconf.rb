@@ -31,6 +31,10 @@ spec = instance_eval(File.read(gemspec), gemspec).dependencies.find{|d|d.name ==
 yajl = find_gem_dir(spec.name, spec.requirement)
 find_header('api/yajl_gen.h', File.join(yajl, 'ext', 'yajl'))
 
+#TODO: inject ruby version
+unless find_header("gc_internal.h", File.join(File.dirname(__FILE__),'specific', 'ruby-1.9.2')) && have_header("gc_internal.h")
+  raise "Do not have internal structs for your ruby version"
+end
 
 hdrs = proc {
   res = %w{
@@ -45,6 +49,7 @@ hdrs = proc {
   #optional:
   %w{
     constant.h
+    internal.h
     }.each{|h| have_header(h)}
 
   res
