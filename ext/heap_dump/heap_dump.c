@@ -54,7 +54,8 @@
   //TODO: just do not dump something?
 #endif
 
-
+#include "fiber.h"
+#include "internal_typed_data.h"
 
 
 static VALUE rb_mHeapDumpModule;
@@ -603,10 +604,6 @@ static void dump_block(const rb_block_t* block, walk_ctx_t *ctx){
 }
 
 
-#include "fiber.h"
-#include "internal_typed_data.h"
-
-
 
 static void yg_fiber_status(enum fiber_status status, walk_ctx_t* ctx){
   switch(status){
@@ -717,9 +714,9 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     ygh_int("method_id", data->id);
 
     yg_cstring("method");
-    if(data->me.def){
+    if(METHOD_DEFINITIONP(data)){
       //printf("methof def %p\n", &data->me);
-      dump_method_definition_as_value(data->me.def, ctx);
+      dump_method_definition_as_value(METHOD_DEFINITIONP(data), ctx);
       //printf("meth end\n");
     }
     return;
@@ -1189,8 +1186,6 @@ ruby_get_stack_grow_direction(volatile VALUE *addr)
 
 #define numberof(array) (int)(sizeof(array) / sizeof((array)[0]))
 
-extern st_table *rb_class_tbl;
-
 
 /////////////
 
@@ -1256,7 +1251,7 @@ vm_backtrace_each(const rb_thread_t *th, int lev, void (*init)(void *), rb_backt
   }
   else if (RUBYVM_CFUNC_FRAME_P(cfp)) {
       ID id;
-      extern VALUE ruby_engine_name;
+      
 
       if (NIL_P(file)) file = ruby_engine_name;
       if (cfp->me->def)
@@ -1502,6 +1497,7 @@ void heapdump_dump(const char* filename){
     //printf("global %p\n", v);
   }
 
+#ifdef HAVE_RB_CLASS_TBL
   yg_cstring("classes");
   yajl_gen_array_open(ctx->yajl);
   printf("classes\n");
@@ -1510,6 +1506,7 @@ void heapdump_dump(const char* filename){
   else printf("no classes\n");
   yajl_gen_array_close(ctx->yajl);
   flush_yajl(ctx);
+#endif
 
   //try_dump_generic_ivars();
 

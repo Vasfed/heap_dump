@@ -32,7 +32,7 @@ yajl = find_gem_dir(spec.name, spec.requirement)
 find_header('api/yajl_gen.h', File.join(yajl, 'ext', 'yajl'))
 
 #TODO: inject ruby version
-unless find_header("gc_internal.h", File.join(File.dirname(__FILE__),'specific', 'ruby-1.9.2')) && have_header("gc_internal.h")
+unless find_header("gc_internal.h", File.join(File.dirname(__FILE__),'specific', "ruby-#{RUBY_VERSION}")) && have_header("gc_internal.h")
   raise "Do not have internal structs for your ruby version"
 end
 
