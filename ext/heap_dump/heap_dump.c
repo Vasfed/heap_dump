@@ -1389,9 +1389,6 @@ static void dump_machine_context(walk_ctx_t *ctx){
   VALUE *stack_start, *stack_end;
 
 
-  yg_cstring("registers");
-  yajl_gen_array_open(ctx->yajl);
-
   FLUSH_REGISTER_WINDOWS;
   /* This assumes that all registers are saved into the jmp_buf (and stack) */
   rb_setjmp(save_regs_gc_mark.j);
@@ -1399,6 +1396,8 @@ static void dump_machine_context(walk_ctx_t *ctx){
   SET_STACK_END;
   GET_STACK_BOUNDS(stack_start, stack_end, 1);
 
+  yg_cstring("registers");
+  yajl_gen_array_open(ctx->yajl);
   //mark_locations_array(objspace, save_regs_gc_mark.v, numberof(save_regs_gc_mark.v));
   VALUE* x = save_regs_gc_mark.v;
   unsigned long n = numberof(save_regs_gc_mark.v);
