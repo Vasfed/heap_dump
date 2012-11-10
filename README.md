@@ -1,8 +1,9 @@
 # HeapDump
 
-Low-level ruby heap memory dump - including data and code references.
-Originally written across ruby 1.9.2-p290 data structures.
+Low-level ruby heap memory dump - including data and code references, useful for finding leaks.
+Has no performance overhead while not active, so can be used in production environment.
 
+Originally written across ruby 1.9.2-p290 data structures.
 Does work on other 1.9.2s and 1.9.3, but not well-tested yet(output is not proven to be as full etc.).
 
 Currently is under development and output format may differ.
@@ -35,6 +36,10 @@ Json contains one object per line, thus can be easily grepped.
 
 ### Injecting into live process via GDB
 
+For long-running applications common and recommended usecase is to have some kind of custom action or signal handler in app itself that invokes dump.
+
+But also dump can be invoked from gdb.
+
 run gdb
 
 ```bash
@@ -51,7 +56,8 @@ call heapdump_dump("mydump.json")
 
 or `call heapdump_dump(0)`, filename defaults to dump.json.
 
-Note that ruby-internal and yajl-ruby gems should be available to process this being injected into.
+Note that yajl-ruby gem (and heap_dump itself) should be available to process this being injected into.
+Also on rare ocassions process(for example if gdb attached while a signal/gc) may crash after and even during dumping, so safer way is to embed it in advance, there's no performance overhead.
 
 ### Importing dump in MongoDB
 
