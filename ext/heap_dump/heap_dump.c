@@ -68,6 +68,7 @@ static ID classid;
 #define yg_rstring(str) yg_string(RSTRING_PTR(str), (unsigned int)RSTRING_LEN(str))
 #define yg_int(i) yajl_gen_integer(ctx->yajl, i)
 #define yg_double(d) (yajl_gen_double(ctx->yajl, d)==yajl_gen_invalid_number? yg_cstring("inf|NaN") : true)
+#define yg_null() yajl_gen_null(ctx->yajl)
 
 //#define yg_id(obj) yg_int(NUM2LONG(rb_obj_id(obj)))
 #define yg_id(obj) yg_id1(obj,ctx)
@@ -507,7 +508,14 @@ static int dump_method_entry_i(ID key, const rb_method_entry_t *me, st_data_t da
 }
 
 static int dump_iv_entry(ID key, VALUE value, walk_ctx_t *ctx){
-  yg_cstring(rb_id2name(key));
+  const char* key_str = rb_id2name(key);
+  if(key_str)
+    yg_cstring(key_str);
+  else{
+    printf("Null key! %d\n", key);
+    yg_cstring("___null_key___");
+    //yg_null();
+  }
   yg_id(value);
   return ST_CONTINUE;
 }
@@ -1361,11 +1369,11 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
   }
 
   yg_cstring("local_storage");
-  yajl_gen_array_open(ctx->yajl);
+  yajl_gen_map_open(ctx->yajl);
   if(th->local_storage){
     st_foreach(th->local_storage, dump_iv_entry, (st_data_t)ctx); //?
   }
-  yajl_gen_array_close(ctx->yajl);
+  yajl_gen_map_close(ctx->yajl);
 
     // mark_event_hooks(th->event_hooks);
   rb_event_hook_t *hook = th->event_hooks;
