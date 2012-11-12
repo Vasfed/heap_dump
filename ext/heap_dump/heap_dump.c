@@ -107,8 +107,8 @@ static void flush_yajl(walk_ctx_t *ctx){
 
 static inline int is_in_heap(void *ptr, void* osp);
 
-static inline const char* rb_builtin_type(VALUE obj){
-  switch(BUILTIN_TYPE(obj)){
+static inline const char* rb_type_str(int type){
+  switch(type){
     #define T(t) case t: return #t;
     T(T_NONE); T(T_NIL);
     T(T_OBJECT); T(T_CLASS); T(T_ICLASS); T(T_MODULE);
@@ -124,7 +124,14 @@ static inline const char* rb_builtin_type(VALUE obj){
     T(T_NODE); // code?
     T(T_ZOMBIE);
     #undef T
+    default:
+      return "_unknown_type_";
   }
+}
+
+static inline const char* rb_builtin_type(VALUE obj){
+  //NOTE: only for heap objects, on embedded use (TYPE(...))
+  return rb_type_str(BUILTIN_TYPE(obj));
 }
 
 #define true 1
@@ -444,7 +451,36 @@ static inline void dump_node(NODE* obj, walk_ctx_t *ctx){
 
 static int
 dump_keyvalue(st_data_t key, st_data_t value, walk_ctx_t *ctx){
-    yg_id((VALUE)key);
+    if ((VALUE)key == Qundef){
+      printf("undef key!\n");
+      // return ST_CONTINUE;
+    }
+
+    if(!key || (VALUE)key == Qnil){
+      yg_cstring("___null_key___"); //TODO: just ""?
+    } else {
+      //TODO: keys must be strings
+      const int type = TYPE(key);
+      if(type == T_SYMBOL || type == T_STRING && (!(RBASIC(key)->flags & RSTRING_NOEMBED)))
+        yg_id((VALUE)key);
+      else
+        {
+          char buf[128];
+          buf[sizeof(buf)-1] = 0;
+          switch(type){
+            case T_FIXNUM:
+              snprintf(buf, sizeof(buf)-1, "%d", FIX2INT(key));
+              break;
+            case T_FLOAT:
+              snprintf(buf, sizeof(buf)-1, "%lg", NUM2DBL(key));
+              break;
+            default:
+              snprintf(buf, sizeof(buf)-1, "__id_%ld", NUM2LONG(rb_obj_id(key)));
+              break;
+          }
+          yg_cstring(buf);
+        }
+      }
     yg_id((VALUE)value);
     return ST_CONTINUE;
 }
@@ -512,7 +548,7 @@ static int dump_iv_entry(ID key, VALUE value, walk_ctx_t *ctx){
   if(key_str)
     yg_cstring(key_str);
   else{
-    printf("Null key! %d\n", key);
+    // printf("Null key! %d\n", key);
     yg_cstring("___null_key___");
     //yg_null();
   }
@@ -1494,7 +1530,7 @@ void heapdump_dump(const char* filename){
 
   dump_machine_context(ctx);
   flush_yajl(ctx);
-  fprintf(ctx->file, "\n");
+  // fprintf(ctx->file, "\n");
 
   struct gc_list *list;
   /* mark protected global variables */
@@ -1521,6 +1557,7 @@ void heapdump_dump(const char* filename){
 
   yajl_gen_map_close(ctx->yajl); //id:roots
   flush_yajl(ctx);
+  fprintf(ctx->file, "\n");
 
   //now dump all live objects
   printf("starting objspace walk\n");
