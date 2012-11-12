@@ -1,4 +1,5 @@
 #include "ruby.h"
+#include "ruby/encoding.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -192,7 +193,12 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
   if(BUILTIN_TYPE(obj) == T_STRING && (!(RBASIC(obj)->flags & RSTRING_NOEMBED))){
     //printf("embedded string\n");
     //yajl_gen_null(ctx->yajl);
-    yg_rstring(obj);
+    if(rb_enc_get_index(obj) == rb_usascii_encindex())
+      yg_rstring(obj);
+    else{
+      //FIXME: convert encoding/safe syms etc?
+      yg_cstring("(encoded string)");
+    }
     return;
   }
 
@@ -971,13 +977,37 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
       break;
     case T_STRING:
       //TODO: limit string len!
-      ygh_string("val", RSTRING_PTR(obj), (unsigned int)RSTRING_LEN(obj));
+      {
+      int enc_i = rb_enc_get_index(obj);
+      rb_encoding* enc = rb_enc_from_index(enc_i);
+      // if(enc_i == rb_utf8_encindex()){
+
+      // } else if(enc_i == rb_ascii8bit_encindex()){
+
+      // }
+      //FIXME: convert encoding and dump?
+      if(enc_i == rb_usascii_encindex())
+        ygh_string("val", RSTRING_PTR(obj), (unsigned int)RSTRING_LEN(obj));
+      //rb_encoding* enc = rb_enc_get(obj);
+      if(enc){
+        ygh_cstring("encoding", enc->name);
+      }
+      }
       break;
     case T_SYMBOL:
       ygh_cstring("val", rb_id2name(SYM2ID(obj)));
       break;
     case T_REGEXP:
-      ygh_string("val", RREGEXP_SRC_PTR(obj), (unsigned int)RREGEXP_SRC_LEN(obj));
+      {
+      int enc_i = rb_enc_get_index(obj);
+      rb_encoding* enc = rb_enc_from_index(enc_i);
+      //FIXME: encodings?
+      if(enc_i == rb_usascii_encindex())
+        ygh_string("val", RREGEXP_SRC_PTR(obj), (unsigned int)RREGEXP_SRC_LEN(obj));
+      if(enc){
+        ygh_cstring("encoding", enc->name);
+      }
+      }
       break;
     // T(T_MATCH);
 

@@ -11,8 +11,8 @@ typedef struct {
 
 //#include "encoding.h" // and this also (rb_encoding + rb_econv_t)
 //FIXME: nasty:
-typedef int rb_encoding;
-typedef struct rb_econv rb_econv_t;
+// typedef int rb_encoding;
+// typedef struct rb_econv rb_econv_t;
 
 typedef struct rb_io_t {
     int fd;                     /* file descriptor */
