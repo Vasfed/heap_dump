@@ -477,7 +477,7 @@ dump_keyvalue(st_data_t key, st_data_t value, walk_ctx_t *ctx){
           buf[sizeof(buf)-1] = 0;
           switch(type){
             case T_FIXNUM:
-              snprintf(buf, sizeof(buf)-1, "%d", FIX2INT(key));
+              snprintf(buf, sizeof(buf)-1, "%ld", FIX2LONG(key));
               break;
             case T_FLOAT:
               snprintf(buf, sizeof(buf)-1, "%lg", NUM2DBL(key));
@@ -598,7 +598,7 @@ static const char* iseq_type(VALUE type){
 static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   if(iseq->name) ygh_rstring("name", iseq->name);
   if(iseq->filename) ygh_rstring("filename", iseq->filename);
-  ygh_int("line", FIX2INT(iseq->line_no));
+  ygh_int("line", FIX2LONG(iseq->line_no));
 
   //if(iseq->type != 25116) //also 28 in mark_ary
   ygh_cstring("type", iseq_type(iseq->type));
@@ -1115,7 +1115,7 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
       break;
 
     case T_FIXNUM:
-      ygh_int("val", NUM2LONG(obj));
+      ygh_int("val", FIX2LONG(obj));
       break;
     case T_FLOAT:
       ygh_double("val", RFLOAT_VALUE(obj));
