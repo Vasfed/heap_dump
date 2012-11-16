@@ -67,26 +67,12 @@ struct heaps_slot {
     void *membase;
     RVALUE *slot;
     size_t limit;
-    uintptr_t *bits;
-    RVALUE *freelist;
-    struct heaps_slot *next;
-    struct heaps_slot *prev;
-    struct heaps_slot *free_next;
+    int finalize_flag;
 };
 
 struct heaps_header {
     struct heaps_slot *base;
     uintptr_t *bits;
-};
-
-struct sorted_heaps_slot {
-    RVALUE *start;
-    RVALUE *end;
-    struct heaps_slot *slot;
-};
-
-struct heaps_free_bitmap {
-    struct heaps_free_bitmap *next;
 };
 
 struct gc_list {
