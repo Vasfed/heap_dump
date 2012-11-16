@@ -34,6 +34,47 @@ HeapDump.dump
 this will run GC and then create a dump.json with live heap contents.
 Json contains one object per line, thus can be easily grepped.
 
+Also heap_dump now includes an object counter, like `ObjectSpace.count_objects`, but capable of counting objects from your namespace
+
+```ruby
+
+HeapDump.count_objects :YourNameSpace # => json string
+```
+
+which results in something like:
+
+```json
+
+{
+    "total_slots": 56419,
+    "free_slots": 12384,
+    "basic_types": {
+        "T_OBJECT": 1945,
+        "T_CLASS": 931,
+        "T_MODULE": 68,
+        "T_FLOAT": 24,
+        "T_STRING": 26557,
+        "T_REGEXP": 346,
+        "T_ARRAY": 6556,
+        "T_HASH": 159,
+        "T_STRUCT": 45,
+        "T_BIGNUM": 2,
+        "T_FILE": 6,
+        "T_DATA": 3516,
+        "T_MATCH": 15,
+        "T_COMPLEX": 1,
+        "T_RATIONAL": 10,
+        "T_NODE": 3754,
+        "T_ICLASS": 100
+    },
+    "user_types": {
+        "YourNameSpace::B": 2,
+        "YourNameSpace::A": 3
+    }
+}
+```
+
+
 ### Injecting into live process via GDB
 
 For long-running applications common and recommended usecase is to have some kind of custom action or signal handler in app itself that invokes dump.

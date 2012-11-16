@@ -64,12 +64,14 @@ static VALUE rb_mHeapDumpModule;
 static ID classid;
 
 //shortcuts to yajl
-#define yg_string(str,len) yajl_gen_string(ctx->yajl, str, len)
+#define YAJL ctx->yajl
+#define yg_string(str,len) yajl_gen_string(YAJL, str, len)
 #define yg_cstring(str) yg_string(str, (unsigned int)strlen(str))
 #define yg_rstring(str) yg_string(RSTRING_PTR(str), (unsigned int)RSTRING_LEN(str))
-#define yg_int(i) yajl_gen_integer(ctx->yajl, i)
-#define yg_double(d) (yajl_gen_double(ctx->yajl, d)==yajl_gen_invalid_number? yg_cstring("inf|NaN") : true)
-#define yg_null() yajl_gen_null(ctx->yajl)
+#define yg_int(i) yajl_gen_integer(YAJL, i)
+#define yg_double(d) (yajl_gen_double(YAJL, d)==yajl_gen_invalid_number? yg_cstring("inf|NaN") : true)
+#define yg_null() yajl_gen_null(YAJL)
+#define yg_bool(b) yajl_gen_bool(YAJL, b);
 
 //#define yg_id(obj) yg_int(NUM2LONG(rb_obj_id(obj)))
 #define yg_id(obj) yg_id1(obj,ctx)
@@ -82,10 +84,10 @@ static ID classid;
 #define ygh_cstring(key,str) {yg_cstring(key); yg_cstring(str);}
 #define ygh_rstring(key,str) {yg_cstring(key); yg_rstring(str);}
 
-#define yg_map() yajl_gen_map_open(ctx->yajl);
-#define yg_map_end() yajl_gen_map_close(ctx->yajl);
-#define yg_array() yajl_gen_array_open(ctx->yajl);
-#define yg_array_end() yajl_gen_array_close(ctx->yajl);
+#define yg_map() yajl_gen_map_open(YAJL);
+#define yg_map_end() yajl_gen_map_close(YAJL);
+#define yg_array() yajl_gen_array_open(YAJL);
+#define yg_array_end() yajl_gen_array_close(YAJL);
 
 
 // context for objectspace_walker callback
@@ -929,9 +931,9 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
 static VALUE rb_class_real_checked(VALUE cl)
 {
-    if (cl == 0)
+    if (cl == 0 || IMMEDIATE_P(cl))
         return 0;
-    while ((RBASIC(cl)->flags & FL_SINGLETON) || BUILTIN_TYPE(cl) == T_ICLASS) {
+    while (cl && ((RBASIC(cl)->flags & FL_SINGLETON) || BUILTIN_TYPE(cl) == T_ICLASS)) {
       if(RCLASS_EXT(cl) && RCLASS_SUPER(cl)){
         cl = RCLASS_SUPER(cl);
       } else {
@@ -1606,6 +1608,131 @@ rb_heapdump_dump(VALUE self, VALUE filename)
   return Qnil;
 }
 
+// class ObjectsCountAction < SFK::HTTP::JsonAction
+//   def start
+//     render "{\n\"memsize\":#{`ps -o rss= -p #{Process.pid}`.to_i},\n"
+
+//     render "\"objects\":#{Yajl.dump(ObjectSpace.count_objects, pretty:true)}"
+//     render ",\n"
+//     count = {}
+//     if params[:gc]
+//       GC.start
+//       render "\"gc\":true,\n"
+//     end
+//     ObjectSpace.each_object(){|obj|
+//       s = obj.class.to_s
+//       next unless s =~ /^SFK|^CS|^Clutter|^Info|^Interactive/
+//       count[s] ||= 0
+//       count[s] += 1
+//     }
+//     render "\"app_objects\":#{Yajl.dump(Hash[count.sort], pretty:true)}"
+//     render "\n}\n"
+//     finish
+//   end
+// end
+#undef YAJL
+#define YAJL yajl
+static int
+iterate_user_type_counts(VALUE key, VALUE value, yajl_gen yajl){
+  yg_rstring(key);
+  yg_int(FIX2LONG(value));
+  return ST_CONTINUE;
+}
+
+static VALUE
+rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
+  rb_check_array_type(string_prefixes);
+  yajl_gen_config cfg;
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.beautify = true;
+  cfg.htmlSafe = true;
+  cfg.indentString = "    ";
+  yajl_gen yajl = yajl_gen_alloc(&cfg,NULL);
+  yg_map();
+  if(do_gc){
+    yg_cstring("gc_ran");
+    yg_bool(true);
+    rb_gc_start();
+  }
+
+  rb_objspace_t *objspace = GET_THREAD()->vm->objspace;
+  size_t counts[T_MASK+1];
+  size_t freed = 0;
+  size_t total = 0;
+  size_t i;
+  VALUE hash = rb_hash_new();
+
+  for (i = 0; i <= T_MASK; i++) counts[i] = 0;
+
+  FOR_EACH_HEAP_SLOT(p)
+    // danger: allocates memory while walking heap
+    if (p->as.basic.flags) {
+      int type = BUILTIN_TYPE(p);
+      counts[type]++;
+      if(type == T_OBJECT){
+        //take class etc.
+        VALUE cls = rb_class_real_checked(CLASS_OF(p));
+        if(!cls) continue;
+        VALUE class_name = rb_class_path(cls);
+        long int n = RARRAY_LEN(string_prefixes)-1;
+        for(; n >= 0; n--){
+          VALUE prefix = rb_check_string_type(RARRAY_PTR(string_prefixes)[n]);
+          if(NIL_P(prefix)) continue;
+          rb_enc_check(class_name, prefix);
+          if (RSTRING_LEN(class_name) < RSTRING_LEN(prefix)) continue;
+          if (!memcmp(RSTRING_PTR(class_name), RSTRING_PTR(prefix), RSTRING_LEN(prefix)))
+            if(RSTRING_LEN(class_name) == RSTRING_LEN(prefix) ||
+              RSTRING_PTR(class_name)[RSTRING_LEN(prefix)] == ':'){
+              //class match
+              VALUE val = rb_hash_aref(hash, class_name);
+              long num;
+              if(FIXNUM_P(val)){
+                num = FIX2LONG(val) + 1;
+              } else {
+                num = 1;
+              }
+              rb_hash_aset(hash, class_name, LONG2FIX(num));
+            }
+        }
+      }
+    } else {
+      freed++;
+    }
+  FOR_EACH_HEAP_SLOT_END(total)
+
+  ygh_int("total_slots", total);
+  ygh_int("free_slots", freed);
+  yg_cstring("basic_types");
+  yg_map();
+  for (i = 0; i <= T_MASK; i++) {
+    if(!counts[i]) continue;
+    yg_cstring(rb_type_str((int)i));
+    yg_int(counts[i]);
+  }
+  yg_map_end();
+
+  yg_cstring("user_types");
+  yg_map();
+  rb_hash_foreach(hash, iterate_user_type_counts, (VALUE)yajl);
+  yg_map_end();
+
+  yg_map_end(); //all document
+
+  //flush yajl:
+  const unsigned char* buf;
+  unsigned int len;
+  if(yajl_gen_get_buf(yajl, &buf, &len) == yajl_gen_status_ok){
+    //fwrite(buf, len, 1, ctx->file);
+    VALUE res = rb_str_new(buf, len);
+    yajl_gen_clear(yajl);
+    yajl_gen_free(yajl);
+    return res;
+  } else {
+    return Qnil;
+  }
+#undef YAJL
+}
+
 void Init_heap_dump(){
   //ruby-internal need to be required before linking us, but just in case..
   ID require, gem;
@@ -1619,4 +1746,5 @@ void Init_heap_dump(){
 
   rb_mHeapDumpModule = rb_define_module("HeapDump");
   rb_define_singleton_method(rb_mHeapDumpModule, "dump_ext", rb_heapdump_dump, 1);
+  rb_define_singleton_method(rb_mHeapDumpModule, "count_objects_ext", rb_heapdump_count_objects, 2);
 }

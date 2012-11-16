@@ -176,3 +176,9 @@ is_pointer_to_heap(rb_objspace_t *objspace, void *ptr)
       }
     return FALSE;
 }
+
+#define FOR_EACH_HEAP_SLOT(p) for (i = 0; i < heaps_used; i++) {\
+      RVALUE *p = heaps[i].slot; RVALUE *pend = p + heaps[i].limit;\
+      if(!p || p < heaps[i].membase) continue;\
+      for (; p < pend; p++) {
+#define FOR_EACH_HEAP_SLOT_END(total) } total += heaps[i].limit; }
