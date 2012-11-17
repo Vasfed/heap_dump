@@ -567,15 +567,7 @@ static int dump_iv_entry(ID key, VALUE value, walk_ctx_t *ctx){
 }
 
 static int dump_const_entry_i(ID key, const rb_const_entry_t *ce, walk_ctx_t *ctx){
-
-//was(ID key, VALUE value, walk_ctx_t *ctx){
-
-  printf("const entry\n");
-
   VALUE value = ce->value;
-  //file = ce->file
-
-  printf("const key %p\n", (void*)key);
   yg_cstring(rb_id2name(key));
   yg_id(value);
   return ST_CONTINUE;
@@ -1086,14 +1078,13 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
           yajl_gen_map_close(ctx->yajl);
         }
 
-        #if 0
+        #ifdef HAVE_CONSTANT_H
         // this is for 1.9.3 or so - where rb_classext_t has const_tbl
         if(RCLASS_CONST_TBL(obj)){
           yg_cstring("consts");
-          yajl_gen_map_open(ctx->yajl);
-          flush_yajl(ctx); //for debug only
+          yg_map();
           st_foreach(RCLASS_CONST_TBL(obj), dump_const_entry_i, (st_data_t)ctx);
-          yajl_gen_map_close(ctx->yajl);
+          yg_map_end();
         }
         #endif
 
