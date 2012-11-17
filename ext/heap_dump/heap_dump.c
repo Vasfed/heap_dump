@@ -147,23 +147,17 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
     return;
   }
   if (IMMEDIATE_P(obj)) {
-    //printf("immediate\n");
-    if (FIXNUM_P(obj)) { /*ignore immediate fixnum*/
-      //fixme: output some readable info
-      //yajl_gen_null(ctx->yajl);
+    if (FIXNUM_P(obj)) {
       yg_int(FIX2LONG(obj));
       return;
     }
     if (obj == Qtrue){ yajl_gen_bool(ctx->yajl, true); return; }
     if (SYMBOL_P(obj)) {
-      //printf("symbol\n");
       yg_cstring(rb_id2name(SYM2ID(obj)));
-      //printf("symbol %s\n", rb_id2name(SYM2ID(obj)));
       return;
     }
     if (obj == Qundef) { yg_cstring("(undef)"); return; }
 
-    printf("immediate p %p?\n", (void*)obj);
     yg_cstring("(unknown)");
     return;
   } else /*non-immediate*/ {
@@ -176,26 +170,11 @@ static void yg_id1(VALUE obj, walk_ctx_t* ctx){
         yajl_gen_bool(ctx->yajl, false);
         return;
       }
-      //printf("non r-test\n");
     }
   }
 
-  //25116(0x621c aka 0b110001000011100), 28(0x) - wtf?
-  //28 = 0x1c
-  //1c= TNODE? or other flags combination
-
-  //also 30(x1e) ? - some internal symbols?
-
-  // if((obj & ~(~(VALUE)0 << RUBY_SPECIAL_SHIFT)) == 0x1c){
-  //   printf("!!!!! special shift flags is 0x1c: %p\n", obj);
-  //   yg_cstring("(unknown or internal 1c)");
-  //   return;
-  // }
-
   if(BUILTIN_TYPE(obj) == T_STRING && (!(RBASIC(obj)->flags & RSTRING_NOEMBED))){
-    //printf("embedded string\n");
-    //yajl_gen_null(ctx->yajl);
-
+    //embedded string
     if(rb_enc_get_index(obj) == rb_usascii_encindex())
       yg_rstring(obj);
     else{
@@ -321,14 +300,14 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
       return; //goto again;
 
     case NODE_SCOPE:  /* 2,3 */ //ANN("format: [nd_tbl]: local table, [nd_args]: arguments, [nd_body]: body");
-      //printf("node scope\n");
+      //actually this is not present in live ruby 1.9+
       if(obj->nd_tbl){
         ID *tbl = RNODE(obj)->nd_tbl;
         unsigned long i = 0, size = tbl[0];
         tbl++;
         for (; i < size; i++) {
           //TODO: dump local var names?
-          //printf("%s\n", rb_id2name(tbl[i]));
+          // rb_id2name(tbl[i])...
           //yg_id(tbl[i]); //FIXME: these are ids, not values
         }
       }
@@ -401,7 +380,6 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 
     case NODE_MEMO:
       yg_id((VALUE)obj->u1.node);
-      //printf("MEMO NODE: %p %p %p\n", obj->u1.node, obj->u2.node, obj->u3.node);
       break;
 
     //not implemented:
@@ -418,14 +396,12 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 
     //iteration func - blocks,procs,lambdas etc:
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
-      //printf("IFUNC NODE: %p %p %p\n", obj->nd_cfnc, obj->u2.node, (void*)obj->nd_aid /*u3 - aid id- - aka frame_this_func?*/);
+      //TODO: obj->nd_cfnc is ptr to function, dump someway?
       if(is_in_heap(obj->u2.node, 0)){
-        //printf("in heap: %p\n", obj->u2.node);
         //TODO: do we need to dump it inline?
         yg_id((VALUE)obj->u2.node);
       }
       if(is_in_heap( (void*)obj->nd_aid, 0)){
-        //printf("in heap: %p\n", (void*)obj->nd_aid);
         yg_id(obj->nd_aid);
       }
       break;
@@ -436,7 +412,7 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
       //FIXME: check pointers!
 
       {
-      printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", nd_type(obj), node_type_name(obj), (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
+      //printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", nd_type(obj), node_type_name(obj), (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
       }
 
       // if (is_in_heap(obj->as.node.u1.node, objspace)) { gc_mark(objspace, (VALUE)obj->as.node.u1.node, lev); }
@@ -461,11 +437,6 @@ static inline void dump_node(NODE* obj, walk_ctx_t *ctx){
 
 static int
 dump_keyvalue(st_data_t key, st_data_t value, walk_ctx_t *ctx){
-    if ((VALUE)key == Qundef){
-      printf("undef key!\n");
-      // return ST_CONTINUE;
-    }
-
     if(!key || (VALUE)key == Qnil){
       yg_cstring("___null_key___"); //TODO: just ""?
     } else {
@@ -510,22 +481,17 @@ static void dump_method_definition_as_value(const rb_method_definition_t *def, w
     yajl_gen_null(ctx->yajl);
     return;
   }
-  //printf("mdef %d\n", def->type);
 
   switch (def->type) {
     case VM_METHOD_TYPE_ISEQ:
-      //printf("method iseq %p\n", def->body.iseq);
-      //printf("self %p\n", def->body.iseq->self);
       yg_id(def->body.iseq->self);
       break;
     case VM_METHOD_TYPE_CFUNC: yg_cstring("(CFUNC)"); break;
     case VM_METHOD_TYPE_ATTRSET:
     case VM_METHOD_TYPE_IVAR:
-      //printf("method ivar\n");
       yg_id(def->body.attr.location);
       break;
     case VM_METHOD_TYPE_BMETHOD:
-      //printf("method binary\n");
       yg_id(def->body.proc);
       break;
     case VM_METHOD_TYPE_ZSUPER: yg_cstring("(ZSUPER)"); break;
@@ -548,7 +514,6 @@ static int dump_method_entry_i(ID key, const rb_method_entry_t *me, st_data_t da
   }
 
   //gc_mark(objspace, me->klass, lev);?
-  //printf("method entry\n");
   dump_method_definition_as_value(me->def, ctx);
   return ST_CONTINUE;
 }
@@ -558,9 +523,9 @@ static int dump_iv_entry(ID key, VALUE value, walk_ctx_t *ctx){
   if(key_str)
     yg_cstring(key_str);
   else{
-    // printf("Null key! %d\n", key);
+    // cannot use yg_null() - keys must be strings
+    //TODO: just ""?
     yg_cstring("___null_key___");
-    //yg_null();
   }
   yg_id(value);
   return ST_CONTINUE;
@@ -585,8 +550,7 @@ static const char* iseq_type(VALUE type){
     case ISEQ_TYPE_MAIN:   return "main";
     case ISEQ_TYPE_DEFINED_GUARD: return "defined_guard";
   }
-  printf("unknown iseq type %p!\n", (void*)type);
-  return "unknown";
+  return "unknown_iseq";
 }
 
 static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
@@ -767,26 +731,20 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
   }
 
   if(!strcmp("method", typename)){
-    //printf("method\n");
     struct METHOD *data = RTYPEDDATA_DATA(obj);
-    //printf("method %p: %p %p\n", data, data->rclass, data->recv);
     ygh_id("rclass", data->rclass);
     ygh_id("recv", data->recv);
     ygh_int("method_id", data->id);
 
     yg_cstring("method");
     if(METHOD_DEFINITIONP(data)){
-      //printf("methof def %p\n", &data->me);
       dump_method_definition_as_value(METHOD_DEFINITIONP(data), ctx);
-      //printf("meth end\n");
     }
     return;
   }
 
   if(!strcmp("binding", typename)){
-    //printf("binding\n");
     rb_binding_t *bind = RTYPEDDATA_DATA(obj);
-    //printf("binding %p\n", bind);
     if(!bind) return;
     ygh_id("env", bind->env);
     ygh_id("filename", bind->filename);
@@ -1503,7 +1461,6 @@ static void dump_machine_context(walk_ctx_t *ctx){
   //mark_locations_array(objspace, save_regs_gc_mark.v, numberof(save_regs_gc_mark.v));
   VALUE* x = save_regs_gc_mark.v;
   unsigned long n = numberof(save_regs_gc_mark.v);
-  //printf("registers\n");
   while (n--) {
     VALUE v = *(x++);
     if(is_in_heap((void*)v, NULL))
@@ -1511,7 +1468,6 @@ static void dump_machine_context(walk_ctx_t *ctx){
   }
   yajl_gen_array_close(ctx->yajl);
 
-  //printf("stack: %p %p\n", stack_start, stack_end);
   yg_cstring("stack");
   yajl_gen_array_open(ctx->yajl);
   //rb_gc_mark_locations(stack_start, stack_end);
@@ -1520,10 +1476,8 @@ static void dump_machine_context(walk_ctx_t *ctx){
     x = stack_start;
     while (n--) {
       VALUE v = *(x++);
-      //printf("val: %p\n", (void*)v);
       //FIXME: other objspace (not default one?)
       if(is_in_heap((void*)v, NULL)) {
-        //printf("ON heap\n");
         yg_id(v);
       }
     }
@@ -1594,8 +1548,6 @@ void heapdump_dump(const char* filename){
   flush_yajl(ctx);
 #endif
 
-  //try_dump_generic_ivars();
-
   //TODO: other gc entry points - symbols, encodings, etc.
 
   yajl_gen_map_close(ctx->yajl); //id:roots
@@ -1622,28 +1574,10 @@ rb_heapdump_dump(VALUE self, VALUE filename)
   return Qnil;
 }
 
-// class ObjectsCountAction < SFK::HTTP::JsonAction
-//   def start
-//     render "{\n\"memsize\":#{`ps -o rss= -p #{Process.pid}`.to_i},\n"
 
-//     render "\"objects\":#{Yajl.dump(ObjectSpace.count_objects, pretty:true)}"
-//     render ",\n"
-//     count = {}
-//     if params[:gc]
-//       GC.start
-//       render "\"gc\":true,\n"
-//     end
-//     ObjectSpace.each_object(){|obj|
-//       s = obj.class.to_s
-//       next unless s =~ /^SFK|^CS|^Clutter|^Info|^Interactive/
-//       count[s] ||= 0
-//       count[s] += 1
-//     }
-//     render "\"app_objects\":#{Yajl.dump(Hash[count.sort], pretty:true)}"
-//     render "\n}\n"
-//     finish
-//   end
-// end
+
+// HeapDump.count_objects:
+
 #undef YAJL
 #define YAJL yajl
 static int
