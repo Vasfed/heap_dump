@@ -1592,11 +1592,14 @@ void heapdump_dump(const char* filename){
 
   struct gc_list *list;
   /* mark protected global variables */
-  printf("global_List\n");
+  printf("global_list\n");
+  yg_cstring("globals");
+  yg_array();
   for (list = GET_THREAD()->vm->global_List; list; list = list->next) {
     VALUE v = *list->varptr;
-    //printf("global %p\n", v);
+    yg_id(v);
   }
+  yg_array_end();
 
 #ifdef HAVE_RB_CLASS_TBL
   yg_cstring("classes");
