@@ -1273,7 +1273,7 @@ static inline int is_in_heap(void *ptr, void* osp){
 
 
 static int
-dump_backtrace(void* data, VALUE file, int line, VALUE method)
+dump_backtrace(void* data, VALUE file, int line, VALUE method, int argc, VALUE* argv)
 {
     walk_ctx_t *ctx = data;
     yg_map();
@@ -1289,54 +1289,76 @@ dump_backtrace(void* data, VALUE file, int line, VALUE method)
       //fprintf(fp, "\tfrom %s:%d:in `%s'\n", filename, line, RSTRING_PTR(method));
       ygh_rstring("method", method);
     }
+    ygh_int("argc", argc);
+    if(argc > 0){
+      yg_cstring("argv");
+      yg_array();
+      int i;
+      for(i = 0; i < argc; i++)
+        yg_id(argv[i]);
+      yg_array_end();
+    }
     yg_map_end();
     return FALSE;
 }
 
-//TODO: autogen, this func is just copied from vm.c
-//typedef int rb_backtrace_iter_func(void *, VALUE, int, VALUE);
+typedef int (rb_backtrace_iter_ext_func)(void *arg, VALUE file, int line, VALUE method_name, int argc, VALUE* argv);
+
+// copied from ruby_ext_backtrace
 static int
-vm_backtrace_each(const rb_thread_t *th, int lev, void (*init)(void *), rb_backtrace_iter_func *iter, void *arg)
+vm_backtrace_each_ext(rb_thread_t *th, int lev, void (*init)(void *), rb_backtrace_iter_ext_func *iter, void *arg)
 {
-    const rb_control_frame_t *limit_cfp = th->cfp;
-    const rb_control_frame_t *cfp = (void *)(th->stack + th->stack_size);
-    VALUE file = Qnil;
-    int line_no = 0;
+  const rb_control_frame_t *limit_cfp = th->cfp;
+  const rb_control_frame_t *cfp = (void *)(th->stack + th->stack_size);
+  VALUE file = Qnil;
+  int line_no = 0;
 
-    cfp -= 2;
-    while (lev-- >= 0) {
-  if (++limit_cfp > cfp) {
-      return FALSE;
+  cfp -= 2;
+  //skip lev frames:
+  while (lev-- >= 0) {
+    if (++limit_cfp > cfp)
+        return FALSE;
   }
-    }
-    if (init) (*init)(arg);
-    limit_cfp = RUBY_VM_NEXT_CONTROL_FRAME(limit_cfp);
-    if (th->vm->progname) file = th->vm->progname;
-    while (cfp > limit_cfp) {
-  if (cfp->iseq != 0) {
-      if (cfp->pc != 0) {
-    rb_iseq_t *iseq = cfp->iseq;
 
-    line_no = rb_vm_get_sourceline(cfp);
-    file = iseq->filename;
-    if ((*iter)(arg, file, line_no, iseq->name)) break;
+  if (init) (*init)(arg);
+
+  limit_cfp = RUBY_VM_NEXT_CONTROL_FRAME(limit_cfp);
+  if (th->vm->progname) file = th->vm->progname;
+
+  while (cfp > limit_cfp) {
+    if (cfp->iseq != 0) {
+        if (cfp->pc != 0) {
+          rb_iseq_t *iseq = cfp->iseq;
+
+          line_no = rb_vm_get_sourceline(cfp);
+          file = iseq->filename;
+
+          //arguments pushed this way: *reg_cfp->sp++ = recv; for (i = 0; i < argc; i++) *reg_cfp->sp++ = argv[i];
+          //local vars = cfp->iseq->local_size - cfp->iseq->arg_size;
+          //in memory: receiver params locals (bp(incremented))
+          VALUE* argv = &cfp->bp[- cfp->iseq->local_size - 1];
+          if ((*iter)(arg, file, line_no, iseq->name, cfp->iseq->arg_size, argv)) break;
+        }
+    } else
+      if (RUBYVM_CFUNC_FRAME_P(cfp)) {
+        ID id = cfp->me->def? cfp->me->def->original_id : cfp->me->called_id;
+
+        if (NIL_P(file)) file = ruby_engine_name;
+
+        if (id != ID_ALLOCATOR){
+          VALUE* argv = NULL;
+          // when argc==-1/-2(variable length params without/with splat) - the cfp has no info on params count :(
+          //TODO: infere from somewhere ex. find self in stack? (not guaranted btw, for example: obj.method(obj, 123, obj) - will find last param instead of self)
+          if(cfp->me->def->body.cfunc.argc >= 0){ //only fixed args
+            argv = &cfp->bp[- cfp->me->def->body.cfunc.argc - 2]; // args+self, bp was incremented thus minus 2
+          }
+          //file+line no from previous iseq frame
+          if((*iter)(arg, file, line_no, rb_id2str(id), cfp->me->def->body.cfunc.argc, argv)) break;
+        }
       }
+    cfp = RUBY_VM_NEXT_CONTROL_FRAME(cfp);
   }
-  else if (RUBYVM_CFUNC_FRAME_P(cfp)) {
-      ID id;
-      
-
-      if (NIL_P(file)) file = ruby_engine_name;
-      if (cfp->me->def)
-    id = cfp->me->def->original_id;
-      else
-    id = cfp->me->called_id;
-      if (id != ID_ALLOCATOR && (*iter)(arg, file, line_no, rb_id2str(id)))
-    break;
-  }
-  cfp = RUBY_VM_NEXT_CONTROL_FRAME(cfp);
-    }
-    return TRUE;
+  return TRUE;
 }
 
 static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
@@ -1397,7 +1419,7 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
 
   yg_cstring("backtrace");
   yg_array();
-  vm_backtrace_each(th, -1, NULL, dump_backtrace, ctx);
+  vm_backtrace_each_ext(th, -1, NULL, dump_backtrace, ctx);
   yg_array_end();
 
   //TODO: mark other...
