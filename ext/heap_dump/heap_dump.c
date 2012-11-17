@@ -1546,13 +1546,15 @@ void heapdump_dump(const char* filename){
   yg_array_end();
 
 #ifdef HAVE_RB_CLASS_TBL
-  printf("classes\n");
-  yg_cstring("classes");
-  yg_map();
-  if (rb_class_tbl && rb_class_tbl->num_entries > 0)
+  st_table *rb_class_tbl = rb_get_class_tbl();
+  if (rb_class_tbl && rb_class_tbl->num_entries > 0){
+    printf("classes\n");
+    yg_cstring("classes");
+    yg_map();
     st_foreach(rb_class_tbl, dump_class_tbl_entry, (st_data_t)ctx);
-  yg_map_end();
-  flush_yajl(ctx);
+    yg_map_end();
+    flush_yajl(ctx);
+  }
 #endif
 
   //TODO: other gc entry points - symbols, encodings, etc.

@@ -39,7 +39,11 @@ struct METHOD {
 #define METHOD_DEFINITIONP(m) m->me.def
 
 #define HAVE_RB_CLASS_TBL 1
-//class.c:
-extern st_table *rb_class_tbl;
+
+inline st_table * rb_get_class_tbl(){
+  //class.c:
+  extern st_table *rb_class_tbl;
+  return rb_class_tbl;
+}
 
 extern VALUE ruby_engine_name;
