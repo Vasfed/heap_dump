@@ -1379,6 +1379,7 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
 
     yg_cstring("cfp");
     yajl_gen_array_open(ctx->yajl);
+    //TODO: this is kind of backtrace, but other direction plus some other info, merge it in backtrace.
     while (cfp != limit_cfp) {
       yajl_gen_map_open(ctx->yajl);
       rb_iseq_t *iseq = cfp->iseq;
