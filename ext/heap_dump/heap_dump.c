@@ -1532,39 +1532,22 @@ static void dump_machine_context(walk_ctx_t *ctx){
   yajl_gen_array_close(ctx->yajl);
 }
 
-static int dump_iv_entry1(ID key, rb_const_entry_t* ce/*st_data_t val*/, walk_ctx_t *ctx){
+#ifdef HAVE_RB_CLASS_TBL
+// 1.9.2, rb_class_tbl fails to be linked in 1.9.3 :(
+
+static int dump_class_tbl_entry(ID key, rb_const_entry_t* ce/*st_data_t val*/, walk_ctx_t *ctx){
   if (!rb_is_const_id(key)) return ST_CONTINUE; //?
-  //rb_const_entry_t* ce = val;
   VALUE value = ce->value;
 
-  //printf("cls %p\n", (void*)value);
-  //printf("id: %s\n", rb_id2name(key));
-
-  //val - damaged in some way?
-
-  //printf("name %s\n", RSTRING_PTR(rb_class_path(rb_class_real_checked(value))));
-
-  //if(is_in_heap(value, NULL)){
-    //printf("on heap\n");
-    yg_id(value);
-  //}
-
+  char* id = rb_id2name(key);
+  if(id)
+    yg_cstring(id);
+  else
+    yg_cstring("(unknown)");
+  yg_id(value);
   return ST_CONTINUE;
 }
-
-// static void try_dump_generic_ivars(walk_ctx_t* ctx){
-//   //very nasty hack:
-//   #if defined(__x86_64__) && defined(__GNUC__) && !defined(__native_client__)
-//   printf("Trying generic ivars\n");
-//   //TODO: config to turn this off in case this will not work
-
-//   VALUE stack_end1, stack_end2;
-//   rb_gc_set_stack_end(&stack_end1);
-//   st_table* tbl = rb_generic_ivar_table();
-//   rb_gc_set_stack_end(&stack_end2);
-
-//   #endif
-// }
+#endif
 
 
 //public symbol, can be used from GDB
@@ -1602,13 +1585,12 @@ void heapdump_dump(const char* filename){
   yg_array_end();
 
 #ifdef HAVE_RB_CLASS_TBL
-  yg_cstring("classes");
-  yajl_gen_array_open(ctx->yajl);
   printf("classes\n");
+  yg_cstring("classes");
+  yg_map();
   if (rb_class_tbl && rb_class_tbl->num_entries > 0)
-    st_foreach(rb_class_tbl, dump_iv_entry1, (st_data_t)ctx);
-  else printf("no classes\n");
-  yajl_gen_array_close(ctx->yajl);
+    st_foreach(rb_class_tbl, dump_class_tbl_entry, (st_data_t)ctx);
+  yg_map_end();
   flush_yajl(ctx);
 #endif
 
