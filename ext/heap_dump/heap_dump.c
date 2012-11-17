@@ -417,11 +417,7 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
     case NODE_BEGIN: break;
     default:    /* unlisted NODE */
       //FIXME: check pointers!
-
-      {
-      //printf("UNKNOWN NODE TYPE %d(%s): %p %p %p\n", nd_type(obj), node_type_name(obj), (void*)obj->u1.node, (void*)obj->u2.node, (void*)obj->u3.node);
-      }
-
+      {}
       // if (is_in_heap(obj->as.node.u1.node, objspace)) { gc_mark(objspace, (VALUE)obj->as.node.u1.node, lev); }
       // if (is_in_heap(obj->as.node.u2.node, objspace)) { gc_mark(objspace, (VALUE)obj->as.node.u2.node, lev); }
       // if (is_in_heap(obj->as.node.u3.node, objspace)) { gc_mark(objspace, (VALUE)obj->as.node.u3.node, lev); }
@@ -1511,6 +1507,28 @@ static int dump_class_tbl_entry(ID key, rb_const_entry_t* ce/*st_data_t val*/, w
 #endif
 
 
+#include <stdarg.h>
+static bool g_verbose = false;
+static int log_printf(const char* format, ...){
+  va_list list;
+  va_start(list, format);
+  if(g_verbose)
+    vprintf(format, list);
+  va_end(list);
+}
+
+#define log log_printf
+
+static VALUE heapdump_verbose(VALUE self){
+  return g_verbose ? Qtrue : Qfalse;
+}
+
+static VALUE heapdump_verbose_setter(VALUE self, VALUE verbose){
+  g_verbose = RTEST(verbose);
+  return heapdump_verbose(self);
+}
+
+
 //public symbol, can be used from GDB
 void heapdump_dump(const char* filename){
   struct walk_ctx ctx_o, *ctx = &ctx_o;
@@ -1519,7 +1537,7 @@ void heapdump_dump(const char* filename){
   if(!filename){
     filename = "dump.json";
   }
-  printf("Dump should go to %s\n", filename);
+  log("Dump should go to %s\n", filename);
   ctx->file = fopen(filename, "wt");
   ctx->yajl = yajl_gen_alloc(NULL,NULL);
   yajl_gen_array_open(ctx->yajl);
@@ -1528,7 +1546,7 @@ void heapdump_dump(const char* filename){
   yajl_gen_map_open(ctx->yajl);
   ygh_cstring("id", "_ROOTS_");
 
-  printf("machine context\n");
+  log("machine context\n");
 
   dump_machine_context(ctx);
   flush_yajl(ctx);
@@ -1536,7 +1554,7 @@ void heapdump_dump(const char* filename){
 
   struct gc_list *list;
   /* mark protected global variables */
-  printf("global_list\n");
+  log("global_list\n");
   yg_cstring("globals");
   yg_array();
   for (list = GET_THREAD()->vm->global_List; list; list = list->next) {
@@ -1548,7 +1566,7 @@ void heapdump_dump(const char* filename){
 #ifdef HAVE_RB_CLASS_TBL
   st_table *rb_class_tbl = rb_get_class_tbl();
   if (rb_class_tbl && rb_class_tbl->num_entries > 0){
-    printf("classes\n");
+    log("classes\n");
     yg_cstring("classes");
     yg_map();
     st_foreach(rb_class_tbl, dump_class_tbl_entry, (st_data_t)ctx);
@@ -1564,7 +1582,7 @@ void heapdump_dump(const char* filename){
   fprintf(ctx->file, "\n");
 
   //now dump all live objects
-  printf("starting objspace walk\n");
+  log("starting objspace walk\n");
   rb_objspace_each_objects(objspace_walker, ctx);
 
   yajl_gen_array_close(ctx->yajl);
@@ -1572,7 +1590,7 @@ void heapdump_dump(const char* filename){
   yajl_gen_free(ctx->yajl);
   fclose(ctx->file);
 
-  printf("Walker called %d times, seen %d live objects.\n", ctx->walker_called, ctx->live_objects);
+  log("Walker called %d times, seen %d live objects.\n", ctx->walker_called, ctx->live_objects);
 }
 
 static VALUE
@@ -1704,4 +1722,8 @@ void Init_heap_dump(){
   rb_mHeapDumpModule = rb_define_module("HeapDump");
   rb_define_singleton_method(rb_mHeapDumpModule, "dump_ext", rb_heapdump_dump, 1);
   rb_define_singleton_method(rb_mHeapDumpModule, "count_objects_ext", rb_heapdump_count_objects, 2);
+
+  rb_define_singleton_method(rb_mHeapDumpModule, "verbose", heapdump_verbose, 0);
+  rb_define_singleton_method(rb_mHeapDumpModule, "verbose=", heapdump_verbose_setter, 1);
+
 }

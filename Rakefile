@@ -37,8 +37,10 @@ task :test => :compile do
       Fiber.yield e
       fiber_var = :some_fiber_var3
     }.resume
-  puts "Dumping..."
+  puts "Dumping...(rake)"
+  HeapDump.verbose = true
   HeapDump.dump
+  puts "Done"
 end
 
 task :default => :test
