@@ -620,6 +620,21 @@ static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
     ygh_id("cd_err_info", compile_data->err_info);
     ygh_id("cd_catch_table_ary", compile_data->catch_table_ary);
   }
+
+  if(iseq->local_table_size > 0){
+    yg_cstring("local_table");
+    yg_array();
+    int i;
+    for(i = 0; i < iseq->local_table_size; i++){
+      char* name = rb_id2name(iseq->local_table[i]);
+      if(name){
+        yg_cstring(name);
+      } else {
+        yg_cstring("(unnamed)");
+      }
+    }
+    yg_array_end();
+  }
 }
 
 static void dump_block(const rb_block_t* block, walk_ctx_t *ctx){
