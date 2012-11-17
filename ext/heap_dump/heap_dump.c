@@ -47,6 +47,7 @@
 
 // simple test - rake compile && bundle exec ruby -e 'require "heap_dump"; HeapDump.dump'
 
+#include <dlfcn.h>
 
 #ifdef HAVE_GC_INTERNAL_H
 #include "gc_internal.h"
@@ -396,7 +397,13 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
 
     //iteration func - blocks,procs,lambdas etc:
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
-      //TODO: obj->nd_cfnc is ptr to function, dump someway?
+      {
+        //find in symbol table, if present:
+        Dl_info info;
+        if(dladdr(obj->nd_cfnc, &info) && info.dli_sname){
+          yg_cstring(info.dli_sname);
+        }
+      }
       if(is_in_heap(obj->u2.node, 0)){
         //TODO: do we need to dump it inline?
         yg_id((VALUE)obj->u2.node);
