@@ -46,4 +46,32 @@ inline st_table * rb_get_class_tbl(){
   return rb_class_tbl;
 }
 
+#define HAVE_RB_GLOBAL_TBL 1
+inline st_table * rb_get_global_tbl(){
+  //class.c:
+  extern st_table *rb_global_tbl;
+  return rb_global_tbl;
+}
+#define gvar_getter_t rb_gvar_getter_t
+#define gvar_setter_t rb_gvar_setter_t
+#define gvar_marker_t rb_gvar_marker_t
+
+struct trace_var {
+    int removed;
+    void (*func)(VALUE arg, VALUE val);
+    VALUE data;
+    struct trace_var *next;
+};
+
+//struct global_variable {
+struct rb_global_variable {
+    int   counter;
+    void *data;
+    gvar_getter_t *getter;
+    gvar_setter_t *setter;
+    gvar_marker_t *marker;
+    int block_trace;
+    struct trace_var *trace;
+};
+
 extern VALUE ruby_engine_name;

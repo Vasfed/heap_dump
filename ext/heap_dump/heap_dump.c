@@ -74,6 +74,8 @@ static ID classid;
 #define yg_null() yajl_gen_null(YAJL)
 #define yg_bool(b) yajl_gen_bool(YAJL, b);
 
+#define yg_funcaddr(addr) yg_funcaddr_real(ctx, addr)
+
 //#define yg_id(obj) yg_int(NUM2LONG(rb_obj_id(obj)))
 #define yg_id(obj) yg_id1(obj,ctx)
 
@@ -140,6 +142,15 @@ static inline const char* rb_builtin_type(VALUE obj){
 
 #define true 1
 #define false 0
+
+static void yg_funcaddr_real(walk_ctx_t* ctx, void* addr){
+  Dl_info info;
+  if(dladdr(addr, &info) && info.dli_sname){
+    yg_cstring(info.dli_sname);
+  } else {
+    yg_cstring("(unknown)");
+  }
+}
 
 //FIXME: handle non-ids?
 static void yg_id1(VALUE obj, walk_ctx_t* ctx){
@@ -399,10 +410,7 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
     case NODE_IFUNC: //NEN_CFNC, NEN_TVAL, NEN_STATE? / u2 seems to be data for func(context?)
       {
         //find in symbol table, if present:
-        Dl_info info;
-        if(dladdr(obj->nd_cfnc, &info) && info.dli_sname){
-          yg_cstring(info.dli_sname);
-        }
+        yg_funcaddr(obj->nd_cfnc);
       }
       if(is_in_heap(obj->u2.node, 0)){
         //TODO: do we need to dump it inline?
@@ -1506,6 +1514,35 @@ static int dump_class_tbl_entry(ID key, rb_const_entry_t* ce/*st_data_t val*/, w
 }
 #endif
 
+#ifdef HAVE_RB_GLOBAL_TBL
+static int dump_global_tbl_entry(ID key, struct rb_global_entry* ge/*st_data_t val*/, walk_ctx_t *ctx){
+  char* id = rb_id2name(key);
+  if(id)
+    yg_cstring(id);
+  else
+    yg_cstring("(unknown)");
+
+  yg_map();
+
+  Dl_info info;
+  if(dladdr(ge->var->getter, &info) && info.dli_sname){
+    yg_cstring("getter");
+    yg_cstring(info.dli_sname);
+
+    if(!strcmp("rb_gvar_val_getter", info.dli_sname)){
+    yg_cstring("data");
+    yg_id(ge->var->data);
+    }
+  }
+
+  yg_cstring("setter");
+  yg_funcaddr(ge->var->setter);
+
+  yg_map_end();
+  return ST_CONTINUE;
+}
+#endif
+
 
 #include <stdarg.h>
 static bool g_verbose = false;
@@ -1562,6 +1599,19 @@ void heapdump_dump(const char* filename){
     yg_id(v);
   }
   yg_array_end();
+
+  //TODO: rb_global_tbl
+#ifdef HAVE_RB_GLOBAL_TBL
+  st_table *rb_global_tbl = rb_get_global_tbl();
+  if (rb_global_tbl && rb_global_tbl->num_entries > 0){
+    log("globals\n");
+    yg_cstring("global_tbl");
+    yg_map();
+    st_foreach(rb_global_tbl, dump_global_tbl_entry, (st_data_t)ctx);
+    yg_map_end();
+    flush_yajl(ctx);
+  }
+#endif
 
 #ifdef HAVE_RB_CLASS_TBL
   st_table *rb_class_tbl = rb_get_class_tbl();

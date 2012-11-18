@@ -37,6 +37,7 @@ task :test => :compile do
       Fiber.yield e
       fiber_var = :some_fiber_var3
     }.resume
+  $some_global = "value_global"
   puts "Dumping...(rake)"
   HeapDump.verbose = true
   HeapDump.dump
