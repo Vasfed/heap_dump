@@ -565,9 +565,19 @@ static const char* iseq_type(VALUE type){
 }
 
 static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
+#ifdef HAVE_RB_ISEQ_T_FILENAME
   if(iseq->name) ygh_rstring("name", iseq->name);
   if(iseq->filename) ygh_rstring("filename", iseq->filename);
   ygh_int("line", FIX2LONG(iseq->line_no));
+#else
+  #ifdef HAVE_RB_ISEQ_T_LOCATION
+    if(iseq->location.label) ygh_rstring("name", iseq->location.label);
+    if(iseq->location.path) ygh_rstring("filename", iseq->location.path);
+    //base_label usually(always?)==label
+    // if(iseq->location.base_label) ygh_rstring("base_label", iseq->location.base_label);
+    ygh_int("line", FIX2LONG(iseq->location.first_lineno));
+  #endif
+#endif
 
   //if(iseq->type != 25116) //also 28 in mark_ary
   ygh_cstring("type", iseq_type(iseq->type));
@@ -632,11 +642,17 @@ static void dump_block(const rb_block_t* block, walk_ctx_t *ctx){
 
   ygh_id("self", block->self);
 
+#ifdef HAVE_RB_BLOCK_T_LFP
   //FIXME: these are pointers to some memory, may be dumped more clever
   ygh_id("lfp", (VALUE)block->lfp);
   ygh_id("dfp", (VALUE)block->dfp);
   //lfp = local frame pointer? local_num elems?
   // dfp = ?
+#endif
+#ifdef HAVE_RB_BLOCK_T_KLASS
+  ygh_id("class", (VALUE)block->klass);
+  //TODO: VALUE*ep = ?
+#endif
 }
 
 
@@ -758,7 +774,13 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     rb_binding_t *bind = RTYPEDDATA_DATA(obj);
     if(!bind) return;
     ygh_id("env", bind->env);
+    #ifdef HAVE_RB_BINDING_T_FILENAME
     ygh_id("filename", bind->filename);
+    ygh_int("line", bind->line_no);
+    #else
+    ygh_id("filename", bind->path);
+    ygh_int("line", bind->first_lineno);
+    #endif
     return;
   }
 
@@ -891,7 +913,7 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
     // rb_gc_mark(tobj->vtm.subsecx);
     // rb_gc_mark(tobj->vtm.utc_offset);
     VALUE flt = rb_funcall(obj, rb_intern("to_f"), 0);
-    if(BUILTIN_TYPE(flt) == T_FLOAT){ ygh_double("val", RFLOAT_VALUE(flt)); }
+    if(TYPE(flt) == T_FLOAT){ ygh_double("val", NUM2DBL(flt)); }
     return;
   }
 
@@ -1301,18 +1323,32 @@ vm_backtrace_each_ext(rb_thread_t *th, int lev, void (*init)(void *), rb_backtra
   if (th->vm->progname) file = th->vm->progname;
 
   while (cfp > limit_cfp) {
+    #ifdef HAVE_RB_CONTROL_FRAME_T_BP
+    VALUE* bp = cfp->bp;
+    #else
+    VALUE* bp = cfp->sp; //??
+    #endif
     if (cfp->iseq != 0) {
         if (cfp->pc != 0) {
           rb_iseq_t *iseq = cfp->iseq;
 
           line_no = rb_vm_get_sourceline(cfp);
+          #ifdef HAVE_RB_ISEQ_T_FILENAME
           file = iseq->filename;
-
+          #else
+          file = iseq->location.path;
+          #endif
           //arguments pushed this way: *reg_cfp->sp++ = recv; for (i = 0; i < argc; i++) *reg_cfp->sp++ = argv[i];
           //local vars = cfp->iseq->local_size - cfp->iseq->arg_size;
           //in memory: receiver params locals (bp(incremented))
-          VALUE* argv = &cfp->bp[- cfp->iseq->local_size - 1];
-          if ((*iter)(arg, file, line_no, iseq->name, cfp->iseq->arg_size, argv)) break;
+          VALUE* argv = &bp[- cfp->iseq->local_size - 1];
+          if ((*iter)(arg, file, line_no,
+            #ifdef HAVE_RB_ISEQ_T_LOCATION
+            iseq->location.label
+            #else
+            iseq->name
+            #endif
+            , cfp->iseq->arg_size, argv)) break;
         }
     } else
       if (RUBYVM_CFUNC_FRAME_P(cfp)) {
@@ -1325,7 +1361,7 @@ vm_backtrace_each_ext(rb_thread_t *th, int lev, void (*init)(void *), rb_backtra
           // when argc==-1/-2(variable length params without/with splat) - the cfp has no info on params count :(
           //TODO: infere from somewhere ex. find self in stack? (not guaranted btw, for example: obj.method(obj, 123, obj) - will find last param instead of self)
           if(cfp->me->def->body.cfunc.argc >= 0){ //only fixed args
-            argv = &cfp->bp[- cfp->me->def->body.cfunc.argc - 2]; // args+self, bp was incremented thus minus 2
+            argv = &bp[- cfp->me->def->body.cfunc.argc - 2]; // args+self, bp was incremented thus minus 2
           }
           //file+line no from previous iseq frame
           if((*iter)(arg, file, line_no, rb_id2str(id), cfp->me->def->body.cfunc.argc, argv)) break;
@@ -1363,7 +1399,12 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
       if (iseq) {
           ygh_id("iseq", RUBY_VM_NORMAL_ISEQ_P(iseq) ? iseq->self : (VALUE)iseq);
           int line_no = rb_vm_get_sourceline(cfp);
+          //TODO: dry?
+          #ifdef HAVE_RB_ISEQ_T_FILENAME
           ygh_rstring("file", iseq->filename);
+          #else
+          ygh_rstring("file", iseq->location.path);
+          #endif
           ygh_int("line_no",line_no);
       }
       if (cfp->me){
@@ -1405,8 +1446,12 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
   ygh_id("thgroup", th->thgroup);
   ygh_id("value", th->value);
   ygh_id("errinfo", th->errinfo);
+
+#ifdef HAVE_RB_THREAD_T_THROWN_ERRINFO
   ygh_id("thrown_errinfo", th->thrown_errinfo);
   ygh_id("local_svar", th->local_svar);
+#endif
+
   ygh_id("top_self", th->top_self);
   ygh_id("top_wrapper", th->top_wrapper);
   ygh_id("fiber", th->fiber);
@@ -1439,7 +1484,12 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
   yajl_gen_map_close(ctx->yajl);
 
     // mark_event_hooks(th->event_hooks);
+  #ifdef HAVE_RB_EVENT_HOOK_T_DATA
   rb_event_hook_t *hook = th->event_hooks;
+  #else
+  struct rb_event_hook_struct *hook = th->event_hooks.hooks;
+  #endif
+
   yg_cstring("event_hooks");
   yajl_gen_array_open(ctx->yajl);
   while(hook){

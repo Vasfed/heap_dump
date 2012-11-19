@@ -1,6 +1,20 @@
 #!/usr/bin/env ruby
 #encoding: utf-8
 
+# autodetect ruby headers
+unless ARGV.any? {|arg| arg.include?('--with-ruby-include') }
+  require 'rbconfig'
+  bindir = RbConfig::CONFIG['bindir']
+  if bindir =~ %r{(^.*/\.rbenv/versions)/([^/]+)/bin$}
+    ruby_include = "#{$1}/#{$2}/include/ruby-1.9.1/ruby-#{$2}"
+    ARGV << "--with-ruby-include=#{ruby_include}"
+  elsif bindir =~ %r{(^.*/\.rvm/rubies)/([^/]+)/bin$}
+    ruby_include = "#{$1}/#{$2}/include/ruby-1.9.1/#{$2}"
+    ruby_include = "#{ENV['rvm_path']}/src/#{$2}" unless File.exist?(ruby_include)
+    ARGV << "--with-ruby-include=#{ruby_include}"
+  end
+end
+
 require 'mkmf'
 require 'debugger/ruby_core_source'
 
@@ -52,11 +66,29 @@ hdrs = proc {
     internal.h
     }.each{|h| have_header(h)}
 
+  have_struct_member("rb_iseq_t", "filename", "vm_core.h")
+  have_struct_member("rb_binding_t", "filename", "vm_core.h")
+  have_struct_member("rb_control_frame_t", "bp", "vm_core.h")
+  have_struct_member("rb_thread_t", "thrown_errinfo", "vm_core.h")
+  have_struct_member("rb_event_hook_t", "thrown_errinfo", "vm_core.h")
+  
+
+
+  have_struct_member("rb_iseq_t", "location", "vm_core.h")
+  #have_struct_member("rb_iseq_location_t", "filename", "vm_core.h")
+  have_struct_member("rb_block_t", "klass", "vm_core.h")
+  have_struct_member("rb_block_t", "lfp", "vm_core.h")
+
   res
 }
 
 dir_config("ruby") # allow user to pass in non-standard core include directory
 
 if !Debugger::RubyCoreSource::create_makefile_with_core(hdrs, "heap_dump")
+  STDERR.print("Makefile creation failed\n")
+  STDERR.print("*************************************************************\n\n")
+  STDERR.print("  NOTE: If your headers were not found, try passing\n")
+  STDERR.print("        --with-ruby-include=PATH_TO_HEADERS      \n\n")
+  STDERR.print("*************************************************************\n\n")
   exit(1)
 end
