@@ -611,7 +611,7 @@ static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
     yg_array();
     int i;
     for(i = 0; i < iseq->local_table_size; i++){
-      char* name = rb_id2name(iseq->local_table[i]);
+      const char* name = rb_id2name(iseq->local_table[i]);
       if(name){
         yg_cstring(name);
       } else {
@@ -1303,7 +1303,7 @@ typedef int (rb_backtrace_iter_ext_func)(void *arg, VALUE file, int line, VALUE 
 
 // copied from ruby_ext_backtrace
 static int
-vm_backtrace_each_ext(rb_thread_t *th, int lev, void (*init)(void *), rb_backtrace_iter_ext_func *iter, void *arg)
+vm_backtrace_each_ext(const rb_thread_t *th, int lev, void (*init)(void *), rb_backtrace_iter_ext_func *iter, void *arg)
 {
   const rb_control_frame_t *limit_cfp = th->cfp;
   const rb_control_frame_t *cfp = (void *)(th->stack + th->stack_size);
@@ -1554,7 +1554,7 @@ static int dump_class_tbl_entry(ID key, rb_const_entry_t* ce/*st_data_t val*/, w
   if (!rb_is_const_id(key)) return ST_CONTINUE; //?
   VALUE value = ce->value;
 
-  char* id = rb_id2name(key);
+  const char* id = rb_id2name(key);
   if(id)
     yg_cstring(id);
   else
