@@ -139,11 +139,6 @@ static inline const char* rb_type_str(int type){
   }
 }
 
-static inline const char* rb_builtin_type(VALUE obj){
-  //NOTE: only for heap objects, on embedded use (TYPE(...))
-  return rb_type_str(BUILTIN_TYPE(obj));
-}
-
 #define true 1
 #define false 0
 
@@ -569,6 +564,7 @@ static const char* iseq_type(VALUE type){
 }
 
 static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
+  int i;
 #ifdef HAVE_RB_ISEQ_T_FILENAME
   if(iseq->name) ygh_rstring("name", iseq->name);
   if(iseq->filename) ygh_rstring("filename", iseq->filename);
@@ -595,12 +591,11 @@ static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   ygh_id("klass", iseq->klass);
   ygh_id("cref_stack", (VALUE)iseq->cref_stack); //NODE*
 
-  ID id = iseq->defined_method_id;
   yg_cstring("defined_method_id");
-  if(id && id != ID_ALLOCATOR){
-    yg_cstring(rb_id2name(id)); // symbol=ID2SYM(id);
+  if(iseq->defined_method_id && iseq->defined_method_id != ID_ALLOCATOR){
+    yg_cstring(rb_id2name(iseq->defined_method_id));
   } else {
-    yg_int(id);
+    yg_int(iseq->defined_method_id);
   }
 
   if (iseq->compile_data != 0) {
@@ -613,7 +608,6 @@ static void dump_iseq(const rb_iseq_t* iseq, walk_ctx_t *ctx){
   if(iseq->local_table_size > 0){
     yg_cstring("local_table");
     yg_array();
-    int i;
     for(i = 0; i < iseq->local_table_size; i++){
       const char* name = rb_id2name(iseq->local_table[i]);
       if(name){
@@ -944,11 +938,13 @@ static VALUE rb_class_real_checked(VALUE cl)
 }
 
 static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
+  //note: BUILTIN_TYPE is only for heap, for embedded use TYPE
+  const int bt_type = BUILTIN_TYPE(obj);
   ctx->live_objects++;
   yajl_gen_map_open(ctx->yajl);
 
   ygh_int("id", NUM2LONG(rb_obj_id(obj)));
-  ygh_cstring("bt", rb_builtin_type(obj));
+  ygh_cstring("bt", rb_type_str(bt_type));
 
   //TODO:
   #ifdef GC_DEBUG
@@ -961,8 +957,6 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
   //ivars for !(obj|class|module):
   // if (FL_TEST(obj, FL_EXIVAR) || rb_special_const_p(obj))
   // return generic_ivar_get(obj, id, warn);
-
-  const int bt_type = BUILTIN_TYPE(obj);
 
   // for generic types ivars are held separately in a table
   if(bt_type != T_OBJECT && bt_type != T_CLASS && bt_type != T_MODULE && bt_type != T_ICLASS){
@@ -1176,10 +1170,10 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
  *   stride: a distance to next VALUE.
 */
 static int objspace_walker(void *vstart, void *vend, size_t stride, void* data) {
+  VALUE v = (VALUE)vstart;
   walk_ctx_t *ctx = data;
   ctx->walker_called++;
 
-  VALUE v = (VALUE)vstart;
   for (; v != (VALUE)vend; v += stride) {
     if (RBASIC(v)->flags) { // is live object
       walk_live_object(v, ctx);
@@ -1266,8 +1260,10 @@ static int
 dump_backtrace(void* data, VALUE file, int line, VALUE method, int argc, VALUE* argv)
 {
     walk_ctx_t *ctx = data;
-    yg_map();
     const char *filename = NIL_P(file) ? "<ruby>" : RSTRING_PTR(file);
+    int i;
+
+    yg_map();
 
     ygh_cstring("file", filename);
     ygh_int("line", line);
@@ -1283,7 +1279,6 @@ dump_backtrace(void* data, VALUE file, int line, VALUE method, int argc, VALUE* 
     if(argc > 0){
       yg_cstring("argv");
       yg_array();
-      int i;
       for(i = 0; i < argc; i++)
         yg_id(argv[i]);
       yg_array_end();
@@ -1301,6 +1296,7 @@ vm_backtrace_each_ext(const rb_thread_t *th, int lev, void (*init)(void *), rb_b
   const rb_control_frame_t *limit_cfp = th->cfp;
   const rb_control_frame_t *cfp = (void *)(th->stack + th->stack_size);
   VALUE file = Qnil;
+  VALUE* argv;
   int line_no = 0;
 
   cfp -= 2;
@@ -1334,7 +1330,7 @@ vm_backtrace_each_ext(const rb_thread_t *th, int lev, void (*init)(void *), rb_b
           //arguments pushed this way: *reg_cfp->sp++ = recv; for (i = 0; i < argc; i++) *reg_cfp->sp++ = argv[i];
           //local vars = cfp->iseq->local_size - cfp->iseq->arg_size;
           //in memory: receiver params locals (bp(incremented))
-          VALUE* argv = &bp[- cfp->iseq->local_size - 1];
+          argv = &bp[- cfp->iseq->local_size - 1];
           if ((*iter)(arg, file, line_no,
             #ifdef HAVE_RB_ISEQ_T_LOCATION
             iseq->location.label
@@ -1350,7 +1346,7 @@ vm_backtrace_each_ext(const rb_thread_t *th, int lev, void (*init)(void *), rb_b
         if (NIL_P(file)) file = ruby_engine_name;
 
         if (id != ID_ALLOCATOR){
-          VALUE* argv = NULL;
+          argv = NULL;
           // when argc==-1/-2(variable length params without/with splat) - the cfp has no info on params count :(
           //TODO: infere from somewhere ex. find self in stack? (not guaranted btw, for example: obj.method(obj, 123, obj) - will find last param instead of self)
           if(cfp->me->def->body.cfunc.argc >= 0){ //only fixed args
@@ -1366,6 +1362,15 @@ vm_backtrace_each_ext(const rb_thread_t *th, int lev, void (*init)(void *), rb_b
 }
 
 static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
+  rb_iseq_t *iseq;
+  int line_no;
+  ID id;
+  #ifdef HAVE_RB_EVENT_HOOK_T_DATA
+  rb_event_hook_t *hook = th->event_hooks;
+  #else
+  struct rb_event_hook_struct *hook = th->event_hooks.hooks;
+  #endif
+
    if(th->stack){
     VALUE *p = th->stack;
     VALUE *sp = th->cfp->sp;
@@ -1386,12 +1391,12 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
     //TODO: this is kind of backtrace, but other direction plus some other info, merge it in backtrace.
     while (cfp != limit_cfp) {
       yajl_gen_map_open(ctx->yajl);
-      rb_iseq_t *iseq = cfp->iseq;
+      iseq = cfp->iseq;
       ygh_id("proc", cfp->proc);
       ygh_id("self", cfp->self);
       if (iseq) {
           ygh_id("iseq", RUBY_VM_NORMAL_ISEQ_P(iseq) ? iseq->self : (VALUE)iseq);
-          int line_no = rb_vm_get_sourceline(cfp);
+          line_no = rb_vm_get_sourceline(cfp);
           //TODO: dry?
           #ifdef HAVE_RB_ISEQ_T_FILENAME
           ygh_rstring("file", iseq->filename);
@@ -1410,7 +1415,7 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
      //   char mark;
         //rb_method_definition_t *def;
         ygh_id("klass", me->klass);
-        ID id = me->called_id;
+        id = me->called_id;
 
         if(me->def){
           id = me->def->original_id;
@@ -1476,13 +1481,6 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
   }
   yajl_gen_map_close(ctx->yajl);
 
-    // mark_event_hooks(th->event_hooks);
-  #ifdef HAVE_RB_EVENT_HOOK_T_DATA
-  rb_event_hook_t *hook = th->event_hooks;
-  #else
-  struct rb_event_hook_struct *hook = th->event_hooks.hooks;
-  #endif
-
   yg_cstring("event_hooks");
   yajl_gen_array_open(ctx->yajl);
   while(hook){
@@ -1494,6 +1492,9 @@ static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx){
 
 
 static void dump_machine_context(walk_ctx_t *ctx){
+  VALUE* x;
+  unsigned long n;
+
   //TODO: other threads?
   rb_thread_t* th = GET_THREAD()->vm->main_thread; //GET_THREAD();
   union {
@@ -1513,8 +1514,8 @@ static void dump_machine_context(walk_ctx_t *ctx){
   yg_cstring("registers");
   yajl_gen_array_open(ctx->yajl);
   //mark_locations_array(objspace, save_regs_gc_mark.v, numberof(save_regs_gc_mark.v));
-  VALUE* x = save_regs_gc_mark.v;
-  unsigned long n = numberof(save_regs_gc_mark.v);
+  x = save_regs_gc_mark.v;
+  n = numberof(save_regs_gc_mark.v);
   while (n--) {
     VALUE v = *(x++);
     if(is_in_heap((void*)v, NULL))
@@ -1544,22 +1545,21 @@ static void dump_machine_context(walk_ctx_t *ctx){
 // 1.9.2, rb_class_tbl fails to be linked in 1.9.3 :(
 
 static int dump_class_tbl_entry(ID key, rb_const_entry_t* ce/*st_data_t val*/, walk_ctx_t *ctx){
+  const char* id;
   if (!rb_is_const_id(key)) return ST_CONTINUE; //?
-  VALUE value = ce->value;
 
-  const char* id = rb_id2name(key);
-  if(id)
+  if((id = rb_id2name(key)))
     yg_cstring(id);
   else
     yg_cstring("(unknown)");
-  yg_id(value);
+  yg_id(ce->value);
   return ST_CONTINUE;
 }
 #endif
 
 #ifdef HAVE_RB_GLOBAL_TBL
 static int dump_global_tbl_entry(ID key, struct rb_global_entry* ge/*st_data_t val*/, walk_ctx_t *ctx){
-  char* id = rb_id2name(key);
+  const char* id = rb_id2name(key);
   if(id)
     yg_cstring(id);
   else
@@ -1573,8 +1573,8 @@ static int dump_global_tbl_entry(ID key, struct rb_global_entry* ge/*st_data_t v
     yg_cstring(info.dli_sname);
 
     if(!strcmp("rb_gvar_val_getter", info.dli_sname)){
-    yg_cstring("data");
-    yg_id(ge->var->data);
+      yg_cstring("data");
+      yg_id((VALUE)ge->var->data);
     }
   }
 
@@ -1614,6 +1614,14 @@ static VALUE heapdump_verbose_setter(VALUE self, VALUE verbose){
 //public symbol, can be used from GDB
 void heapdump_dump(const char* filename){
   struct walk_ctx ctx_o, *ctx = &ctx_o;
+  struct gc_list *list;
+  #ifdef HAVE_RB_CLASS_TBL
+  st_table *rb_class_tbl;
+  #endif
+  #ifdef HAVE_RB_GLOBAL_TBL
+  st_table *rb_global_tbl;
+  #endif
+
   memset(ctx, 0, sizeof(*ctx));
 
   if(!filename){
@@ -1634,7 +1642,6 @@ void heapdump_dump(const char* filename){
   flush_yajl(ctx);
   // fprintf(ctx->file, "\n");
 
-  struct gc_list *list;
   /* mark protected global variables */
   log("global_list\n");
   yg_cstring("globals");
@@ -1647,7 +1654,7 @@ void heapdump_dump(const char* filename){
 
   //TODO: rb_global_tbl
 #ifdef HAVE_RB_GLOBAL_TBL
-  st_table *rb_global_tbl = rb_get_global_tbl();
+  rb_global_tbl = rb_get_global_tbl();
   if (rb_global_tbl && rb_global_tbl->num_entries > 0){
     log("globals\n");
     yg_cstring("global_tbl");
@@ -1659,7 +1666,7 @@ void heapdump_dump(const char* filename){
 #endif
 
 #ifdef HAVE_RB_CLASS_TBL
-  st_table *rb_class_tbl = rb_get_class_tbl();
+  rb_class_tbl = rb_get_class_tbl();
   if (rb_class_tbl && rb_class_tbl->num_entries > 0){
     log("classes\n");
     yg_cstring("classes");
@@ -1711,26 +1718,31 @@ iterate_user_type_counts(VALUE key, VALUE value, yajl_gen yajl){
 
 static VALUE
 rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
-  rb_check_array_type(string_prefixes);
   yajl_gen_config cfg;
+  yajl_gen yajl;
+  VALUE cls, class_name, prefix;
+  size_t counts[T_MASK+1];
+  size_t freed = 0;
+  size_t total = 0;
+  size_t i;
+  long int n;
+  const unsigned char* buf;
+  unsigned int len;
+  VALUE hash = rb_hash_new();
+  rb_objspace_t *objspace = GET_THREAD()->vm->objspace;
+
+  rb_check_array_type(string_prefixes);
   memset(&cfg, 0, sizeof(cfg));
   cfg.beautify = true;
   cfg.htmlSafe = true;
   cfg.indentString = "    ";
-  yajl_gen yajl = yajl_gen_alloc(&cfg,NULL);
+  yajl = yajl_gen_alloc(&cfg,NULL);
   yg_map();
   if(do_gc){
     yg_cstring("gc_ran");
     yg_bool(true);
     rb_gc_start();
   }
-
-  rb_objspace_t *objspace = GET_THREAD()->vm->objspace;
-  size_t counts[T_MASK+1];
-  size_t freed = 0;
-  size_t total = 0;
-  size_t i;
-  VALUE hash = rb_hash_new();
 
   for (i = 0; i <= T_MASK; i++) counts[i] = 0;
 
@@ -1741,12 +1753,11 @@ rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
       counts[type]++;
       if(type == T_OBJECT){
         //take class etc.
-        VALUE cls = rb_class_real_checked(CLASS_OF(p));
+        cls = rb_class_real_checked(CLASS_OF(p));
         if(!cls) continue;
-        VALUE class_name = rb_class_path(cls);
-        long int n = RARRAY_LEN(string_prefixes)-1;
-        for(; n >= 0; n--){
-          VALUE prefix = rb_check_string_type(RARRAY_PTR(string_prefixes)[n]);
+        class_name = rb_class_path(cls);
+        for(n = RARRAY_LEN(string_prefixes)-1; n >= 0; n--){
+          prefix = rb_check_string_type(RARRAY_PTR(string_prefixes)[n]);
           if(NIL_P(prefix)) continue;
           rb_enc_check(class_name, prefix);
           if (RSTRING_LEN(class_name) < RSTRING_LEN(prefix)) continue;
@@ -1789,8 +1800,6 @@ rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
   yg_map_end(); //all document
 
   //flush yajl:
-  const unsigned char* buf;
-  unsigned int len;
   if(yajl_gen_get_buf(yajl, &buf, &len) == yajl_gen_status_ok){
     //fwrite(buf, len, 1, ctx->file);
     VALUE res = rb_str_new((char*)buf, len);
