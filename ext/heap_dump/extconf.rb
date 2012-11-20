@@ -70,7 +70,7 @@ hdrs = proc {
   have_struct_member("rb_binding_t", "filename", "vm_core.h")
   have_struct_member("rb_control_frame_t", "bp", "vm_core.h")
   have_struct_member("rb_thread_t", "thrown_errinfo", "vm_core.h")
-  have_struct_member("rb_event_hook_t", "thrown_errinfo", "vm_core.h")
+  have_struct_member("rb_event_hook_t", "data", "vm_core.h")
   
 
 
