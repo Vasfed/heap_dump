@@ -64,6 +64,7 @@ hdrs = proc {
   %w{
     constant.h
     internal.h
+    gc.h
     }.each{|h| have_header(h)}
 
   have_struct_member("rb_iseq_t", "filename", "vm_core.h")

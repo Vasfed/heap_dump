@@ -16,6 +16,10 @@
 // #include "atomic.h"
 #include "iseq.h"
 
+#ifdef HAVE_GC_H
+#include "gc.h"
+#endif
+
 #ifdef HAVE_INTERNAL_H
 #include "internal.h"
 #else
@@ -66,9 +70,9 @@ static ID classid;
 
 //shortcuts to yajl
 #define YAJL ctx->yajl
-#define yg_string(str,len) yajl_gen_string(YAJL, str, len)
-#define yg_cstring(str) yg_string(str, (unsigned int)strlen(str))
-#define yg_rstring(str) yg_string(RSTRING_PTR(str), (unsigned int)RSTRING_LEN(str))
+#define yg_string(str,len) yajl_gen_string(YAJL, (const unsigned char *)(str), (unsigned int)(len))
+#define yg_cstring(str) yg_string(str, strlen(str))
+#define yg_rstring(str) yg_string(RSTRING_PTR(str), RSTRING_LEN(str))
 #define yg_int(i) yajl_gen_integer(YAJL, i)
 #define yg_double(d) (yajl_gen_double(YAJL, d)==yajl_gen_invalid_number? yg_cstring("inf|NaN") : true)
 #define yg_null() yajl_gen_null(YAJL)
@@ -688,7 +692,7 @@ static void dump_locations(VALUE* p, long int n, walk_ctx_t *ctx){
 static void dump_thread(const rb_thread_t* th, walk_ctx_t *ctx);
 
 
-vm_dump_each_thread_func(st_data_t key, VALUE obj, walk_ctx_t *ctx){
+static int vm_dump_each_thread_func(st_data_t key, VALUE obj, walk_ctx_t *ctx){
   //here stored 'self' from thread
   // yg_map();
   ygh_id("id", obj);
@@ -786,10 +790,8 @@ static void dump_data_if_known(VALUE obj, walk_ctx_t *ctx){
 
   if(!strcmp("VM/env", typename)){
     const rb_env_t* env = RTYPEDDATA_DATA(obj);
-    int i = 0;
     yg_cstring("env");
     yajl_gen_array_open(ctx->yajl);
-    //for(; i < env->env_size; i++) yg_id(env->env[i]);
     dump_locations(env->env, env->env_size, ctx);
     yajl_gen_array_close(ctx->yajl);
 
@@ -1173,7 +1175,8 @@ static inline void walk_live_object(VALUE obj, walk_ctx_t *ctx){
  *   vend: a pointer to next to the valid heap_slot area.
  *   stride: a distance to next VALUE.
 */
-static int objspace_walker(void *vstart, void *vend, int stride, walk_ctx_t *ctx) {
+static int objspace_walker(void *vstart, void *vend, size_t stride, void* data) {
+  walk_ctx_t *ctx = data;
   ctx->walker_called++;
 
   VALUE v = (VALUE)vstart;
@@ -1187,18 +1190,8 @@ static int objspace_walker(void *vstart, void *vend, int stride, walk_ctx_t *ctx
 }
 
 
-//TODO: move to separate header.
-/*
-  Bits of code taken directly from ruby gc
-  Copyright (C) 1993-2007 Yukihiro Matsumoto
-  Copyright (C) 2000  Network Applied Communication Laboratory, Inc.
-  Copyright (C) 2000  Information-technology Promotion Agency, Japan
-*/
-// #if defined(__x86_64__) && defined(__GNUC__) && !defined(__native_client__)
-// #define SET_MACHINE_STACK_END(p) __asm__("movq\t%%rsp, %0" : "=r" (*(p)))
-// #elif defined(__i386) && defined(__GNUC__) && !defined(__native_client__)
-// #define SET_MACHINE_STACK_END(p) __asm__("movl\t%%esp, %0" : "=r" (*(p)))
-// #else
+//TODO: move to separate header?
+#ifndef SET_MACHINE_STACK_END
 NOINLINE(static void rb_gc_set_stack_end(VALUE **stack_end_p));
 #define SET_MACHINE_STACK_END(p) rb_gc_set_stack_end(p)
 #define USE_CONSERVATIVE_STACK_END
@@ -1209,6 +1202,7 @@ rb_gc_set_stack_end(VALUE **stack_end_p)
     VALUE stack_end;
     *stack_end_p = &stack_end;
 }
+#endif
 
 #ifdef __ia64
 #define SET_STACK_END (SET_MACHINE_STACK_END(&th->machine_stack_end), th->machine_register_stack_end = rb_ia64_bsp())
@@ -1255,7 +1249,6 @@ ruby_get_stack_grow_direction(volatile VALUE *addr)
 #define rb_jmp_buf rb_jmpbuf_t
 
 #define numberof(array) (int)(sizeof(array) / sizeof((array)[0]))
-
 
 /////////////
 
@@ -1597,11 +1590,13 @@ static int dump_global_tbl_entry(ID key, struct rb_global_entry* ge/*st_data_t v
 #include <stdarg.h>
 static bool g_verbose = false;
 static int log_printf(const char* format, ...){
+  int res = 0;
   va_list list;
   va_start(list, format);
   if(g_verbose)
-    vprintf(format, list);
+    res = vprintf(format, list);
   va_end(list);
+  return res;
 }
 
 #define log log_printf
@@ -1798,7 +1793,7 @@ rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
   unsigned int len;
   if(yajl_gen_get_buf(yajl, &buf, &len) == yajl_gen_status_ok){
     //fwrite(buf, len, 1, ctx->file);
-    VALUE res = rb_str_new(buf, len);
+    VALUE res = rb_str_new((char*)buf, len);
     yajl_gen_clear(yajl);
     yajl_gen_free(yajl);
     return res;
