@@ -1588,7 +1588,8 @@ static int dump_global_tbl_entry(ID key, struct rb_global_entry* ge/*st_data_t v
 
 
 #include <stdarg.h>
-static bool g_verbose = false;
+
+static int g_verbose = false;
 static int log_printf(const char* format, ...){
   int res = 0;
   va_list list;
