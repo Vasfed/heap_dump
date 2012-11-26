@@ -131,6 +131,9 @@ or `call heapdump_dump(0)`, filename defaults to dump.json.
 Note that yajl-ruby gem (and heap_dump itself) should be available to process this being injected into.
 Also on rare ocassions process(for example if gdb attached while a signal/gc) may crash after and even during dumping, so safer way is to embed it in advance, there's no performance overhead.
 
+Object count from gdb: `call (void)heapdump_count_objects_print("Object", "")` (null or empty string terminated list of namespace/class names)
+or `call (char*)heapdump_count_objects_return("Object", "")`, note that you then should free memory - `call (void)free($$)`
+
 ### Importing dump in MongoDB
 
 Dump can be imported in mongo for some map-reduce, easy script access etc.

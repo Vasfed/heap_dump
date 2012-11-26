@@ -11,7 +11,7 @@ module HeapDump
   end
 
   # provides an object count - like ObjectSpace.count_objects, but also for user classes
-  def self.count_objects namespaces_array, gc=false
+  def self.count_objects namespaces_array=[], gc=false
     unless namespaces_array.is_a?(Array) && namespaces_array.all?{|v|v.is_a? Symbol}
       if namespaces_array.is_a? Symbol
         namespaces_array = [namespaces_array]

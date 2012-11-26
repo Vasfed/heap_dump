@@ -1718,26 +1718,16 @@ iterate_user_type_counts(VALUE key, VALUE value, yajl_gen yajl){
 }
 
 static VALUE
-rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
-  yajl_gen_config cfg;
-  yajl_gen yajl;
+heapdump_count_objects_core(yajl_gen yajl, VALUE string_prefixes, int do_gc){
   VALUE cls, class_name, prefix;
   size_t counts[T_MASK+1];
   size_t freed = 0;
   size_t total = 0;
   size_t i;
   long int n;
-  const unsigned char* buf;
-  unsigned int len;
   VALUE hash = rb_hash_new();
   rb_objspace_t *objspace = GET_THREAD()->vm->objspace;
 
-  rb_check_array_type(string_prefixes);
-  memset(&cfg, 0, sizeof(cfg));
-  cfg.beautify = true;
-  cfg.htmlSafe = true;
-  cfg.indentString = "    ";
-  yajl = yajl_gen_alloc(&cfg,NULL);
   yg_map();
   if(do_gc){
     yg_cstring("gc_ran");
@@ -1799,6 +1789,26 @@ rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
   yg_map_end();
 
   yg_map_end(); //all document
+  return hash;
+#undef YAJL
+}
+
+static VALUE
+rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
+  yajl_gen_config cfg;
+  yajl_gen yajl;
+  const unsigned char* buf;
+  unsigned int len;
+
+  rb_check_array_type(string_prefixes);
+
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.beautify = true;
+  cfg.htmlSafe = true;
+  cfg.indentString = "    ";
+  yajl = yajl_gen_alloc(&cfg,NULL);
+
+  heapdump_count_objects_core(yajl, string_prefixes, RTEST(do_gc));
 
   //flush yajl:
   if(yajl_gen_get_buf(yajl, &buf, &len) == yajl_gen_status_ok){
@@ -1810,7 +1820,68 @@ rb_heapdump_count_objects(VALUE self, VALUE string_prefixes, VALUE do_gc){
   } else {
     return Qnil;
   }
-#undef YAJL
+}
+
+//NOTE: return value must be freed if not null
+static const char* heapdump_count_objects_ex(int return_string, char* first_name, va_list args){
+  yajl_gen_config cfg;
+  yajl_gen yajl;
+  const unsigned char* buf;
+  unsigned int len;
+  VALUE string_prefixes;
+
+
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.beautify = !return_string;
+  // cfg.htmlSafe = true;
+  cfg.indentString = "    ";
+  yajl = yajl_gen_alloc(&cfg,NULL);
+
+  string_prefixes = rb_ary_new();
+  while(first_name && first_name[0]){
+    rb_ary_push(string_prefixes, rb_str_new2(first_name));
+    first_name = va_arg(args, char*);
+  }
+
+  heapdump_count_objects_core(yajl, string_prefixes, false);
+
+  //flush yajl:
+  if(yajl_gen_get_buf(yajl, &buf, &len) == yajl_gen_status_ok){
+    char* result = NULL;
+    if(!return_string){
+      fwrite(buf, len, 1, stderr);
+      fprintf(stderr, "\n");
+    } else {
+      result = malloc(len);
+      memcpy(result, buf, len);
+    }
+    yajl_gen_clear(yajl);
+    yajl_gen_free(yajl);
+    return result; //NOTE: that memory is already freed! (but it's usually ok for gdb)
+  }
+  return NULL;
+}
+
+void heapdump_count_objects_print(char* first_name, ...){
+  va_list args;
+  va_start(args, first_name);
+  heapdump_count_objects_ex(false, first_name, args);
+  va_end(args);
+}
+
+//NOTE: return value must be freed if not null
+const char* heapdump_count_objects_return(char* first_name, ...){
+  va_list args;
+  va_start(args, first_name);
+  const char* res = heapdump_count_objects_ex(true, first_name, args);
+  va_end(args);
+  return res;
+}
+
+
+static VALUE rb_heapdump_trigger_int_3(VALUE self){
+  __asm__("int $0x3;");
+  return Qnil;
 }
 
 void Init_heap_dump(){
@@ -1827,6 +1898,7 @@ void Init_heap_dump(){
   rb_mHeapDumpModule = rb_define_module("HeapDump");
   rb_define_singleton_method(rb_mHeapDumpModule, "dump_ext", rb_heapdump_dump, 1);
   rb_define_singleton_method(rb_mHeapDumpModule, "count_objects_ext", rb_heapdump_count_objects, 2);
+  rb_define_singleton_method(rb_mHeapDumpModule, "int3", rb_heapdump_trigger_int_3, 0);
 
   rb_define_singleton_method(rb_mHeapDumpModule, "verbose", heapdump_verbose, 0);
   rb_define_singleton_method(rb_mHeapDumpModule, "verbose=", heapdump_verbose_setter, 1);
