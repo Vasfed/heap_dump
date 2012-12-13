@@ -181,6 +181,21 @@ Then make a full dump and inspect references to those objects.
 
 Note that heapdump operates only on process it has been called on, so if you have multiple workers (Unicorn/Rainbows/Passenger spawned processes etc.) - you may run into a situation when request for dump is not routed to process you're interested in.
 
+Also it may be a good idea to run dump in forked process or/and on signal:
+
+```ruby
+
+  Signal.trap('USR2') do
+    old_pid = Process.pid
+    fork {
+      puts "Dumping worker #{old_pid}"
+      require 'heap_dump'
+      HeapDump.dump "dump_#{old_pid}.json"
+      exit
+    }
+  end
+```
+
 ## Contributing
 
 1. Fork it
