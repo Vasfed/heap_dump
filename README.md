@@ -4,7 +4,7 @@ Low-level ruby heap memory dump - including data and code references, useful for
 Has no performance overhead while not active, so can be used in production environment.
 
 Originally written across ruby 1.9.2-p290 data structures.
-Does work on other 1.9.2s, 1.9.3 and 2.0.0-preview1, but not well-tested yet(output is not proven to be as full etc.).
+Does work on other 1.9.2s, 1.9.3, 2.0.0-preview1 and 2.0.0-preview2, but not well-tested yet(output is not proven to be as full etc.).
 
 Currently is under development and output format may differ.
 
@@ -69,7 +69,7 @@ Also heap_dump now includes an object counter, like `ObjectSpace.count_objects`,
 
 ```ruby
 
-HeapDump.count_objects :YourNameSpace # => json string
+HeapDump.count_objects [YourNameSpace, "SomeClass"] # => json string
 ```
 
 which results in something like:
@@ -100,7 +100,8 @@ which results in something like:
     },
     "user_types": {
         "YourNameSpace::B": 2,
-        "YourNameSpace::A": 3
+        "YourNameSpace::A": 3,
+        "SomeClass": 1
     }
 }
 ```
