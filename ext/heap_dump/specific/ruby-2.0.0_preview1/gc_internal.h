@@ -29,6 +29,7 @@ typedef struct gc_profile_record {
 #endif
 } gc_profile_record;
 
+
 #if defined(_MSC_VER) || defined(__BORLANDC__) || defined(__CYGWIN__)
 #pragma pack(push, 1) /* magic for reducing sizeof(RVALUE): 24 -> 20 */
 #endif
@@ -68,7 +69,9 @@ typedef struct RVALUE {
 #endif
 
 struct heaps_slot {
-    struct heaps_header *header;
+    void *membase;
+    RVALUE *slot;
+    size_t limit;
     uintptr_t *bits;
     RVALUE *freelist;
     struct heaps_slot *next;
@@ -79,9 +82,12 @@ struct heaps_slot {
 struct heaps_header {
     struct heaps_slot *base;
     uintptr_t *bits;
+};
+
+struct sorted_heaps_slot {
     RVALUE *start;
     RVALUE *end;
-    size_t limit;
+    struct heaps_slot *slot;
 };
 
 struct heaps_free_bitmap {
@@ -127,12 +133,13 @@ typedef struct rb_objspace {
   struct heaps_slot *ptr;
   struct heaps_slot *sweep_slots;
   struct heaps_slot *free_slots;
-  struct heaps_header **sorted;
+  struct sorted_heaps_slot *sorted;
   size_t length;
   size_t used;
         struct heaps_free_bitmap *free_bitmap;
   RVALUE *range[2];
-  struct heaps_header *freed;
+  RVALUE *freed;
+  size_t live_num;
   size_t free_num;
   size_t free_min;
   size_t final_num;
@@ -158,8 +165,6 @@ typedef struct rb_objspace {
     } profile;
     struct gc_list *global_list;
     size_t count;
-    size_t total_allocated_object_num;
-    size_t total_freed_object_num;
     int gc_stress;
 
     struct mark_func_data_struct {
@@ -203,6 +208,7 @@ typedef struct rb_objspace {
 #define BITMAP_INDEX(p) (NUM_IN_SLOT(p) / (sizeof(uintptr_t) * CHAR_BIT))
 #define BITMAP_OFFSET(p) (NUM_IN_SLOT(p) & ((sizeof(uintptr_t) * CHAR_BIT)-1))
 #define MARKED_IN_BITMAP(bits, p) (bits[BITMAP_INDEX(p)] & ((uintptr_t)1 << BITMAP_OFFSET(p)))
+
 //
 #define RANY(o) ((RVALUE*)(o))
 //
@@ -211,7 +217,7 @@ static inline int
 is_pointer_to_heap(rb_objspace_t *objspace, void *ptr)
 {
     register RVALUE *p = RANY(ptr);
-    register struct heaps_header *heap;
+    register struct sorted_heaps_slot *heap;
     register size_t hi, lo, mid;
 
     if (p < lomem || p > himem) return FALSE;
@@ -222,7 +228,7 @@ is_pointer_to_heap(rb_objspace_t *objspace, void *ptr)
     hi = heaps_used;
     while (lo < hi) {
   mid = (lo + hi) / 2;
-  heap = objspace->heap.sorted[mid];
+  heap = &objspace->heap.sorted[mid];
   if (heap->start <= p) {
       if (p < heap->end)
     return TRUE;
@@ -236,10 +242,10 @@ is_pointer_to_heap(rb_objspace_t *objspace, void *ptr)
 }
 
 //from count_objects:
-#define FOR_EACH_HEAP_SLOT(p)     for (i = 0; i < heaps_used; i++) { RVALUE *p, *pend;\
-        p = objspace->heap.sorted[i]->start; pend = p + objspace->heap.sorted[i]->limit;\
-        for (;p < pend; p++) {
-
-#define FOR_EACH_HEAP_SLOT_END(total) } total += objspace->heap.sorted[i]->limit; }
+#define FOR_EACH_HEAP_SLOT(p) for (i = 0; i < heaps_used; i++) {\
+      RVALUE *p = objspace->heap.sorted[i].start, *pend = objspace->heap.sorted[i].end;\
+      if(!p) continue;\
+      for (; p < pend; p++) {
+#define FOR_EACH_HEAP_SLOT_END(total) } total += objspace->heap.sorted[i].slot->limit; }
 
 #define NODE_OPTBLOCK 1000000 //FIXME

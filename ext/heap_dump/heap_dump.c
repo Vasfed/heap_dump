@@ -390,7 +390,8 @@ static void dump_node_refs(NODE* obj, walk_ctx_t* ctx){
       return;
 
     case NODE_MEMO:
-      yg_id((VALUE)obj->u1.node);
+      if(is_in_heap(NULL, obj->u1.node))
+        yg_id((VALUE)obj->u1.node);
       break;
 
     //not implemented:

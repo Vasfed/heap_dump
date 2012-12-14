@@ -42,7 +42,9 @@ task :test => :compile do
   HeapDump.verbose = true
   HeapDump.dump
   puts "Done"
-  puts HeapDump.count_objects
+  class A; end
+  A.new
+  puts HeapDump.count_objects [:A]
 end
 
 task :default => :test

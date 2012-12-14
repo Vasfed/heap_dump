@@ -13,6 +13,7 @@ unless ARGV.any? {|arg| arg.include?('--with-ruby-include') }
     ruby_include = "#{ENV['rvm_path']}/src/#{$2}" unless File.exist?(ruby_include)
     ARGV << "--with-ruby-include=#{ruby_include}"
   end
+  puts "Using ruby source from #{ruby_include}"
 end
 
 require 'mkmf'
@@ -45,8 +46,14 @@ spec = instance_eval(File.read(gemspec), gemspec).dependencies.find{|d|d.name ==
 yajl = find_gem_dir(spec.name, spec.requirement)
 find_header('api/yajl_gen.h', File.join(yajl, 'ext', 'yajl'))
 
-#TODO: inject ruby version
-unless find_header("gc_internal.h", File.join(File.dirname(__FILE__),'specific', "ruby-#{RUBY_VERSION}")) && have_header("gc_internal.h")
+specific = RUBY_VERSION
+
+# here other specific headers may be injected, for example - patched releases etc.
+if RUBY_VERSION == '2.0.0' && RUBY_REVISION == 37411
+  specific = "2.0.0_preview1"
+end
+
+unless find_header("gc_internal.h", File.join(File.dirname(__FILE__),'specific', "ruby-#{specific}")) && have_header("gc_internal.h")
   raise "Do not have internal structs for your ruby version"
 end
 
@@ -84,6 +91,10 @@ hdrs = proc {
 }
 
 dir_config("ruby") # allow user to pass in non-standard core include directory
+
+if ENV['DEBUG']
+  CONFIG['debugflags'] << ' -ggdb3 -O0'
+end
 
 if !Debugger::RubyCoreSource::create_makefile_with_core(hdrs, "heap_dump")
   STDERR.print("Makefile creation failed\n")
