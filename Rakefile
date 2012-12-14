@@ -44,7 +44,7 @@ task :test => :compile do
   puts "Done"
   class A; end
   A.new
-  puts HeapDump.count_objects [:A]
+  puts HeapDump.count_objects [A]
 end
 
 task :default => :test

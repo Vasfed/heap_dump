@@ -12,12 +12,12 @@ module HeapDump
 
   # provides an object count - like ObjectSpace.count_objects, but also for user classes
   def self.count_objects namespaces_array=[], gc=false
-    unless namespaces_array.is_a?(Array) && namespaces_array.all?{|v|v.is_a? Symbol}
-      if namespaces_array.is_a? Symbol
-        namespaces_array = [namespaces_array]
+    unless namespaces_array.is_a?(Array) && namespaces_array.all?{|v|v.respond_to? :to_s}
+      if namespaces_array.respond_to? :to_s
+        namespaces_array = [namespaces_array.to_s]
       else
         #TODO: actually, better way is to accept anything convertable, even module itself
-        raise ArgumentError.new("namespaces_array must be a symbol or array of symbols")
+        raise ArgumentError.new("namespaces_array must be a symbol/string or array of strings/symbols")
       end
     end
     prefixes_array = namespaces_array.map{|c| c.to_s}
