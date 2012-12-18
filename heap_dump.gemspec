@@ -23,4 +23,5 @@ Gem::Specification.new do |gem|
   gem.add_dependency "debugger-ruby_core_source"
   gem.add_dependency 'yajl-ruby', '~>1.1'
   gem.add_development_dependency "rake-compiler"
+  gem.add_development_dependency "cast", '>=0.3'
 end
