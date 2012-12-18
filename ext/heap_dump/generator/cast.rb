@@ -326,15 +326,6 @@ end
             end
           }
         end
-
-        #TODO: DRY
-        s = find_type(tree, type_struct)
-        # p s
-        add_src = []
-        res = type_dependencies tree, s, add_src
-        puts add_src.join("\n")
-
-        puts mark_func
       else
         puts "// no mark func for #{typename}."
       end
@@ -344,12 +335,10 @@ end
         # this is longer - have to check all functions for a call to rb_data_typed_object_alloc
         puts "// no type in mark func for #{typename}. searching for alloc"
 
-        # ne = find_function(tree, 'enc_new')
-        # p ne
-
-        tree.entities.each{|entity|
-          next unless entity.is_a?(C::FunctionDef) && entity.def
-          catch :stop do
+        #REFACTOR: separate function
+        catch :stop do
+          tree.entities.each{|entity|
+            next unless entity.is_a?(C::FunctionDef) && entity.def
             entity.def.preorder{|n|
               if n.is_a?(C::Call) && n.expr.name == 'rb_data_typed_object_alloc' && n.args.last.is_a?(C::Address) && n.args.last.expr.name == var_name
                 puts "//found alloc call, var is #{n.args[1].name}"
@@ -359,23 +348,27 @@ end
                 type_struct = base_type_name find_type_of_var(var, entity, n)
                 #FIXME: unnamed types...
                 puts "// type is #{type_struct}"
-                unless !type_struct || $known_typenames && $known_typenames.include?(type_struct)
-                  s = find_type(tree, type_struct)
-                  if s
-                    add_src = []
-                    res = type_dependencies tree, s, add_src
-                    add_src << s.to_s
-                    puts add_src.join("\n")
-                  else
-                    puts "// cannot find unknown struct #{type_struct} !"
-                  end
-                end
                 throw :stop
               end
             }
-          end
-        }
+          }
+        end
       end
+
+      unless !type_struct || $known_typenames && $known_typenames.include?(type_struct)
+        s = find_type(tree, type_struct)
+        if s
+          add_src = []
+          res = type_dependencies tree, s, add_src
+          #?
+          # add_src << s.to_s
+          puts add_src.join("\n")
+        else
+          puts "// cannot find unknown struct #{type_struct} !"
+        end
+      end
+
+      puts mark_func if mark_func
 
     }
   }
