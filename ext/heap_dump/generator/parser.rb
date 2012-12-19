@@ -9,21 +9,8 @@ class Parser
 
   attr_reader :ruby_src_dir
 
-  def initialize ruby_dir=find_ruby_src
+  def initialize ruby_dir
     @ruby_src_dir = ruby_dir
-  end
-
-  def find_ruby_src
-    bindir = RbConfig::CONFIG['bindir']
-    if bindir =~ %r{(^.*/\.rbenv/versions)/([^/]+)/bin$}
-      ruby_include = "#{$1}/#{$2}/include/ruby-1.9.1/ruby-#{$2}"
-      ARGV << "--with-ruby-include=#{ruby_include}"
-    elsif bindir =~ %r{(^.*/\.rvm/rubies)/([^/]+)/bin$}
-      ruby_include = "#{$1}/#{$2}/include/ruby-1.9.1/#{$2}"
-      ruby_include = "#{ENV['rvm_path']}/src/#{$2}" unless File.exist?(ruby_include)
-      ARGV << "--with-ruby-include=#{ruby_include}"
-    end
-    ruby_include
   end
 
   def prepare_source src
@@ -60,31 +47,6 @@ class Parser
     parser.type_names << '__builtin_va_list'
     tree = parser.parse(prepare_source(src))
     Tree.new src, tree, parser, self
-  end
-
-  def known_typenames
-    @known_typenames ||= fetch_known_typenames
-  end
-
-  # check if typename is available to gem
-  def known_typename? type
-    # return false unless @known_typenames
-    known_typenames.include? type
-  end
-
-  # typenames that are available to gems without hacking
-  def fetch_known_typenames
-    #TODO: generate this source from heapdump itself:
-    tree = parse('dummy_gem.c')
-
-    types = tree.parser.type_names
-    tree.entities.each{|n|
-      #TODO: does this include typedefs to known types?
-      if n.is_a?(C::Declaration) && n.type.name && n.type.members
-        types << n.type.name
-      end
-    }
-    types
   end
 
 
@@ -128,36 +90,6 @@ class Parser
 
     def find_function name
       tree.entities.find{|n| n.is_a?(C::FunctionDef) && n.name == name && n.def }
-    end
-
-    #REFACTOR: remove tree_unused
-    def type_dependencies tree_unused, item, add_src = [], res = Set.new
-      new_types = Set.new
-
-      item.postorder{|n|
-        if n.is_a?(C::DirectType) # indirect have direct on leafs
-          next unless n.name
-          #FIXME: name collisions vs scopes!
-          new_types << n.name unless res.include?(n.name)
-          if n.name && !n.members
-            new_types << n.name
-          end
-        end
-      }
-
-      new_types.each{|typename|
-        next if res.include?(typename) || top_parser.known_typename?(typename)
-        res << typename
-        # puts "Descending to #{typename}"
-        type = find_type typename
-        unless type
-          puts "// cannot find definition for #{typename}"
-          next
-        end
-        type_dependencies tree, type, add_src, res
-        add_src << type.to_s
-      }
-      res
     end
 
     def base_type_name type
