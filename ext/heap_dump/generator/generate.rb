@@ -20,7 +20,7 @@ parser = Parser.new # "/Users/vasfed/work/heap_dump/tmp/tcs-ruby_1_9_3"
 if false
 # puts "RBasic Known(shoud be true): #{$known_typenames.include?('RBasic').inspect}"
 
-tree,parser = parser_with_source(File.join($ruby_src, 'gc.c'))
+tree = parser.parse(File.join(parser.ruby_src_dir, 'gc.c'))
 
 # p parser.type_names
 
@@ -82,14 +82,16 @@ class TypedDataEntry
   attr_reader :type_struct
 
   attr_reader :mark_func
+  attr_reader :var_name
 
-  def initialize name
+  def initialize name, var_name
     @name = name
+    @var_name = var_name
     # @typename = typename
   end
 
-  def handle_mark_func func_name
-    @mark_func = find_function(tree, mark_func_name)
+  def handle_mark_func func_name, tree
+    @mark_func = tree.find_function(func_name)
 
     input_param_name = @mark_func.type.params.first.name
 
@@ -114,12 +116,12 @@ class TypedDataEntry
   def handle_alloc_func tree
     # no mark -> no references, good, but still we may want the type for dumping reasons
     # this is longer - have to check all functions for a call to rb_data_typed_object_alloc
-    puts "// no type in mark func for #{typename}. searching for alloc"
+    puts "// no type in mark func for #{name}. searching for alloc"
 
     tree.entities.each{|entity|
       next unless entity.is_a?(C::FunctionDef) && entity.def
       entity.def.preorder{|n|
-        if n.is_a?(C::Call) && n.expr.name == 'rb_data_typed_object_alloc' && n.args.last.is_a?(C::Address) && n.args.last.expr.name == var_name
+        if n.is_a?(C::Call) && n.expr.name == 'rb_data_typed_object_alloc' && n.args.last.is_a?(C::Address) && n.args.last.expr.name == self.var_name
           puts "//found alloc call, var is #{n.args[1].name}"
           # p entity
           # puts entity
@@ -133,18 +135,34 @@ class TypedDataEntry
     }
   end
 
+  def to_src tree, known_typenames = Set.new
+    if s = tree.find_type(type_struct)
+      add_src = []
+      res = tree.type_dependencies tree, s, add_src
+      known_typenames += res
+      # add_src << s.to_s       #?
+      puts add_src.join("\n")
+    else
+      puts "// cannot find unknown struct #{type_struct} !"
+    end
+  end
+
 end
 
 
 types = []
 
+#TODO: track this - already filled custom types
+filled_typenames = Set.new
+
 #FIXME: formatting may interfere
-`grep -l 'static const rb_data_type_t' #{$ruby_src}/*.c`.split.each do|filename|
+`grep -l 'static const rb_data_type_t' #{parser.ruby_src_dir}/*.c`.split.each do|filename|
   puts "// #{filename}"
   #FIXME:
-  next unless filename == '/Users/vasfed/.rvm/src/ruby-1.9.3-p194/time.c'
+  # next unless filename == '/Users/vasfed/.rvm/src/ruby-1.9.3-p194/encoding.c'
 
   tree = parser.parse File.expand_path(filename)
+
 
   nodes = tree.entities.find_all{|n|
     n.is_a?(C::Declaration) && n.storage == :static && n.type.name == 'rb_data_type_t' && n.declarators.any?{|d| d.init }
@@ -155,14 +173,14 @@ types = []
       mark_func_name = d.init.member_inits[1].init.member_inits.first.init.name
       puts "// typename: #{var_name} contains definition for '#{typename}': #{mark_func_name}"
 
-      type_entry = TypedDataEntry.new typename
+      type_entry = TypedDataEntry.new typename, var_name
       types << type_entry
 
       # now grab marking function :)
       type_struct = nil
       mark_func = nil
       if mark_func_name
-        type_entry.handle_mark_func mark_func_name
+        type_entry.handle_mark_func mark_func_name, tree
       else
         puts "// no mark func for #{typename}."
       end
@@ -173,15 +191,7 @@ types = []
 
       # add our findings to src...
       unless !type_entry.type_struct || parser.known_typename?(type_entry.type_struct)
-        if s = tree.find_type(type_struct)
-          add_src = []
-          res = tree.type_dependencies tree, s, add_src
-          #?
-          # add_src << s.to_s
-          puts add_src.join("\n")
-        else
-          puts "// cannot find unknown struct #{type_struct} !"
-        end
+        puts type_entry.to_src tree, filled_typenames
       end
 
       puts type_entry.mark_func if type_entry.mark_func

@@ -23,6 +23,7 @@ class Parser
       ruby_include = "#{ENV['rvm_path']}/src/#{$2}" unless File.exist?(ruby_include)
       ARGV << "--with-ruby-include=#{ruby_include}"
     end
+    ruby_include
   end
 
   def prepare_source src
@@ -58,7 +59,7 @@ class Parser
     parser.pos.filename = src
     parser.type_names << '__builtin_va_list'
     tree = parser.parse(prepare_source(src))
-    Tree.new src, tree, parser
+    Tree.new src, tree, parser, self
   end
 
   def known_typenames
@@ -90,10 +91,12 @@ class Parser
   class Tree
     attr_reader :tree, :parser
     attr_reader :filename
-    def initialize src_file, tree, parser
+    attr_reader :top_parser
+    def initialize src_file, tree, parser, top_parser
       @filename = src_file
       @tree = tree
       @parser = parser
+      @top_parser = top_parser
     end
 
     def inspect
@@ -143,10 +146,10 @@ class Parser
       }
 
       new_types.each{|typename|
-        next if res.include?(typename) || $known_typenames && $known_typenames.include?(typename)
+        next if res.include?(typename) || top_parser.known_typename?(typename)
         res << typename
         # puts "Descending to #{typename}"
-        type = find_type tree, typename
+        type = find_type typename
         unless type
           puts "// cannot find definition for #{typename}"
           next
