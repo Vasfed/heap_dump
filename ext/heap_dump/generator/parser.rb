@@ -1,6 +1,6 @@
 #encoding: utf-8
 
-require 'cast'
+require 'casty'
 require 'rbconfig'
 
 

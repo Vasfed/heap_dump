@@ -13,6 +13,8 @@ module GCStuff
 
     type_dependencies tree, rb_objspace
     #src includes objspace too
+
+    #TODO: defines for objspace from gc.c
     rb_objspace
   end
 
@@ -39,8 +41,9 @@ module GCStuff
   end
 
   def handle_gc_stuff
-    gc_tree = parser.parse(File.join(ruby_src_dir, 'gc.c'))
+    gc_tree = parsed_ruby_file 'gc.c'
 
+    fetch_rb_objspace gc_tree
     make_for_each_heap_slot gc_tree
     fetch_is_pointer_to_heap gc_tree
   end
