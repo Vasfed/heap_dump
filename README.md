@@ -5,6 +5,7 @@ Has no performance overhead while not active, so can be used in production envir
 
 Originally written across ruby 1.9.2-p290 data structures.
 Does work on other 1.9.2s, 1.9.3, 2.0.0-preview1 and 2.0.0-preview2, but not well-tested yet(output is not proven to be as full etc.).
+Note that if you're running patched rubies it most likely will not work.
 
 Currently is under development and output format may differ.
 
