@@ -21,6 +21,6 @@ Gem::Specification.new do |gem|
   gem.extensions = "ext/heap_dump/extconf.rb"
 
   gem.add_dependency "debugger-ruby_core_source"
-  gem.add_dependency 'yajl-ruby', '~>1.1'
+  gem.add_dependency 'yajl-ruby', '1.1'
   gem.add_development_dependency "rake-compiler"
 end
